@@ -8,21 +8,24 @@
         </el-badge>
         <el-button round size="large" :type="deviceHubEnabled ? 'success' : undefined" :plain="deviceHubEnabled" :icon="deviceHubEnabled || mobileConnection.mode === 'remote' ? IconDeviceDesktop : IconQrcode" @click="mobileConnectVisible = true">{{ mobileConnectionLabel }}</el-button>
       </div>
-      <div class="githubAction">
-        <span class="arrowHint starHint">
-          点个 Star 支持一下
-          <svg viewBox="0 0 84 44" fill="none" aria-hidden="true">
-            <path d="M4 29C18 40 44 38 44 18C44 1 21 3 24 19C27 37 57 32 77 16M65 17L77 16L73 28" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </span>
-        <el-button round size="large" :icon="IconBrandGithub" tag="a" href="https://github.com/HBAI-Ltd/Toonflow-app" target="_blank" rel="noopener noreferrer">GitHub</el-button>
+      <div class="accountAction">
+        <el-dropdown trigger="click" @command="handleAccountCommand">
+          <el-button class="accountButton" round size="large" :icon="IconUserCircle">
+            {{ account.user?.displayName || "账户" }}
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="logout" :icon="IconLogout">退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </el-header>
     <el-main class="pageContent">
       <section class="creationPanel" aria-label="创建项目">
         <div class="brand">
-          <el-image class="brandLogo" :src="logoUrl" fit="contain" alt="Toonflow" />
-          <h1>Toonflow</h1>
+          <el-image class="brandLogo" :src="logoUrl" fit="contain" alt="山竹漫剧" />
+          <h1>山竹漫剧</h1>
         </div>
         <div class="promptArea">
           <span class="arrowHint inspirationHint">
@@ -102,7 +105,7 @@ import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox, type InputInstance } from "element-plus";
 import { getReadableFileMimeType, readableFileAccept } from "@toonflow/server/documentFormats";
 import {
-  IconSettings, IconBrandGithub, IconQrcode, IconDeviceDesktop,
+  IconSettings, IconUserCircle, IconLogout, IconQrcode, IconDeviceDesktop,
   IconArrowUp, IconLayoutGrid,
   IconList, IconSortDescending,
   IconSortAscending, IconFolder, IconEdit,
@@ -112,7 +115,8 @@ import modelPopover from "@/components/modelPopover.vue";
 import attachmentList from "@/components/agent/attachmentList.vue";
 import { createPastedTextFile, readTextAttachment } from "@/components/agent/textAttachments";
 import type { AgentAttachment } from "@/components/agent/types";
-import logoUrl from "@toonflow/assets/logo.svg";
+import logoUrl from "@toonflow/assets/mangosteenAvatar.png";
+import { useAccountStore } from "@/stores/account";
 import { useWorkspaceStore, type Project } from "@/stores/workspace";
 import { hasDesktopUpdate } from "@/stores/desktopUpdate";
 import { deviceHubEnabled, mobileConnection, mobileConnectionLabel } from "@/lib/mobile";
@@ -125,6 +129,7 @@ const settingsVisible = ref(false);
 const mobileConnectVisible = ref(false);
 const mobileConnect = defineAsyncComponent(() => import("@/components/mobileConnect.vue"));
 const router = useRouter();
+const account = useAccountStore();
 const creating = ref(false);
 const opening = ref(false);
 const promptWorkspacePicker = ref<InstanceType<typeof workspacePicker>>();
@@ -152,6 +157,23 @@ const placeholderPhrases = [
   "从一句话开始，搭建你的创作工作流…",
 ];
 const promptPlaceholder = ref(translate(placeholderPhrases[0]!));
+
+async function handleAccountCommand(command: string) {
+  if (command !== "logout") return;
+  const confirmed = await ElMessageBox.confirm("退出后需要重新登录才能进入工作台。", "退出登录", {
+    confirmButtonText: "退出登录",
+    cancelButtonText: "取消",
+    type: "warning",
+  }).then(() => true, () => false);
+  if (!confirmed) return;
+  try {
+    await account.logout();
+    await router.replace("/hello");
+    ElMessage.success("已退出登录");
+  } catch {
+    ElMessage.error(account.errorMessage || "退出登录失败，请重试");
+  }
+}
 
 onMounted(() => {
   window.addEventListener("dragend", clearAttachmentDrag, true);
@@ -429,23 +451,16 @@ async function createProject(fromPrompt = true) {
       text-decoration: none;
     }
 
-    .githubAction {
-      position: relative;
+    .accountAction {
+      min-width: 0;
 
-      .starHint {
-        top: 0;
-        inset-inline-end: calc(100% + 12px);
-        height: 100%;
+      .accountButton {
+        max-width: min(260px, 42vw);
 
-        &:dir(rtl) svg { transform: scaleX(-1); }
-
-        @media (max-width: 560px) {
-          top: calc(100% + 6px);
-          inset-inline-end: 0;
-          height: auto;
-
-          svg { transform: rotate(-45deg); }
-          &:dir(rtl) svg { transform: scaleX(-1) rotate(-45deg); }
+        :deep(span) {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
       }
     }
@@ -465,13 +480,10 @@ async function createProject(fromPrompt = true) {
         gap: 16px;
         margin-bottom: 36px;
 
-        .brandLogo {
+          .brandLogo {
           width: 48px;
           height: 48px;
-
-          .dark & {
-            filter: invert(1);
-          }
+            border-radius: 14px;
         }
 
         h1 {
