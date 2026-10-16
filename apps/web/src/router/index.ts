@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory } from "vue-router";
-import { useHelloStore } from "@/stores/hello";
+import { useAccountStore } from "@/stores/account";
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -9,7 +9,6 @@ const router = createRouter({
     },
     {
       path: "/hello",
-      beforeEnter: async () => await useHelloStore().load() ? { path: "/home", replace: true } : true,
       component: () => import("@/pages/hello/index.vue"),
     },
     {
@@ -26,4 +25,23 @@ const router = createRouter({
     },
   ],
 });
+
+router.beforeEach(async (to) => {
+  const account = useAccountStore();
+  if (account.status === "unknown") {
+    try {
+      await account.restore();
+    } catch {
+      return to.path === "/hello" ? true : { path: "/hello", replace: true };
+    }
+  }
+  if (account.status === "authenticated" && to.path === "/hello") {
+    return { path: "/home", replace: true };
+  }
+  if (account.status !== "authenticated" && to.path !== "/hello") {
+    return { path: "/hello", replace: true };
+  }
+  return true;
+});
+
 export default router;
