@@ -5,10 +5,10 @@ export function parseInstallUrl(value: string): PluginInstallRequest {
   try {
     if (value.length > 8192) throw new Error(t`安装链接不能超过 8192 个字符`);
     if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error(t`安装链接不能包含换行或控制字符`);
-    if (!URL.canParse(value)) throw new Error(t`安装链接不是有效 URL，应为 toonflow://install?type=node&url=编码后的下载地址`);
+    if (!URL.canParse(value)) throw new Error(t`安装链接不是有效 URL，应为 mangosteen-studio://install?type=node&url=编码后的下载地址`);
     const link = new URL(value);
-    if (link.protocol !== "toonflow:" || link.hostname !== "install" || !["", "/"].includes(link.pathname)) {
-      throw new Error(t`安装链接格式错误，应为 toonflow://install?type=node&url=编码后的下载地址`);
+    if (link.protocol !== "mangosteen-studio:" || link.hostname !== "install" || !["", "/"].includes(link.pathname)) {
+      throw new Error(t`安装链接格式错误，应为 mangosteen-studio://install?type=node&url=编码后的下载地址`);
     }
     if (link.username || link.password || link.port || link.hash) throw new Error(t`安装链接不能包含账号、密码、端口或 # 片段`);
     if ([...link.searchParams.keys()].some(key => key !== "type" && key !== "url")) {

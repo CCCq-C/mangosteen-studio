@@ -1,16 +1,16 @@
 {
-  "name": "toonflow",
-  "description": "Toonflow 是一款 AI 短剧漫剧工具，能够利用 AI 技术将小说自动转化为剧本，并结合 AI 生成的图片和视频，实现高效的短剧创作。",
-  "author": "HBAI-Ltd <ltlctools@outlook.com>",
+  "name": "mangosteen-studio",
+  "version": "0.1.0",
+  "description": "山竹漫剧是一款面向短剧与漫剧创作的本地优先 AI 工作台。",
+  "author": "CCCq-C",
   "license": "MIT",
-  "homepage": "https://github.com/HBAI-Ltd/Toonflow-app#readme",
+  "homepage": "https://github.com/CCCq-C/mangosteen-studio#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/HBAI-Ltd/Toonflow-app.git"
+    "url": "git+https://github.com/CCCq-C/mangosteen-studio.git"
   },
   "bugs": {
-    "url": "https://github.com/HBAI-Ltd/Toonflow-app/issues",
-    "email": "ltlctools@outlook.com"
+    "url": "https://github.com/CCCq-C/mangosteen-studio/issues"
   },
   "type": "module",
   "packageManager": "bun@1.3.14",

@@ -8,7 +8,7 @@
               <div class="welcomeHeader">
                 <span class="welcomeIcon" aria-hidden="true"><span class="welcomeLogo" :style="{ maskImage: `url(${logoUrl})` }" /></span>
                 <div>
-                  <p class="welcomeLabel">你好，我是 Toonflow 助手</p>
+                  <p class="welcomeLabel">你好，我是山竹漫剧助手</p>
                   <h3>从一个想法开始</h3>
                 </div>
               </div>
@@ -171,7 +171,7 @@ import {
 } from "@tabler/icons-vue";
 import { ElMessage } from "element-plus";
 import { getReadableFileExtension, getReadableFileMimeType, readableFileAccept } from "@toonflow/server/documentFormats";
-import logoUrl from "@toonflow/assets/logo.svg";
+import logoUrl from "@toonflow/assets/mangosteenAvatar.png";
 import modelPopover from "@/components/modelPopover.vue";
 import skillMenu from "./skillMenu.vue";
 import mentionMenu from "./mentionMenu.vue";

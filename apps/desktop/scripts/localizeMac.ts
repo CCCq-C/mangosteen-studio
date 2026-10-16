@@ -15,10 +15,9 @@ if (process.env.ELECTROBUN_OS === "macos") {
   let plist = readFileSync(plistPath, "utf8");
   // ACT: 两套 SDK 当前生成 XML；如果改为二进制 plist，应改用 macOS 的 plutil。
   if (!/<\/dict>\s*<\/plist>\s*$/.test(plist)) throw new Error(`不支持的 Info.plist 格式：${plistPath}`);
-  const bundleName = plist.match(/<key>CFBundleName<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
-  if (!bundleName) throw new Error(`无法读取应用名称：${plistPath}`);
-
   for (const [key, value] of [
+    ["CFBundleName", "<string>山竹漫剧</string>"],
+    ["CFBundleDisplayName", "<string>山竹漫剧</string>"],
     ["CFBundleDevelopmentRegion", "<string>zh-Hans</string>"],
     ["CFBundleLocalizations", "<array><string>zh-Hans</string></array>"],
   ]) {
@@ -34,6 +33,6 @@ if (process.env.ELECTROBUN_OS === "macos") {
   const resourceDir = join(bundlePath, "Contents", "Resources", "zh-Hans.lproj");
   mkdirSync(resourceDir, { recursive: true });
   writeFileSync(join(resourceDir, "InfoPlist.strings"),
-    `CFBundleName = ${JSON.stringify(bundleName)};\nCFBundleDisplayName = ${JSON.stringify(bundleName)};\n`);
+    `CFBundleName = ${JSON.stringify("山竹漫剧")};\nCFBundleDisplayName = ${JSON.stringify("山竹漫剧")};\n`);
   console.log(`已设置 macOS 简体中文本地化：${bundlePath}`);
 }

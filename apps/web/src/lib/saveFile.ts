@@ -18,7 +18,7 @@ export default async function saveFile(content: Blob | (() => Promise<Blob>), fi
       throw new Error("导出接口返回了无效的文件地址");
     }
     const requestId = crypto.randomUUID();
-    const target = new URL("toonflow://save");
+    const target = new URL("mangosteen-studio://save");
     target.search = new URLSearchParams({ requestId, url: new URL(data.url, window.location.origin).href, fileName }).toString();
     return new Promise<boolean>((resolve, reject) => {
       const handleSaved = (event: WindowEventMap["toonflow:mobile-save"]) => {
