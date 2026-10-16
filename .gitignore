@@ -31,3 +31,4 @@ Thumbs.db
 *.keychain
 *.keychain-db
 .tmp/
+/.worktrees/
