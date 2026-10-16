@@ -1,212 +1,265 @@
 <template>
-  <main class="hello" :class="{ configuring: view !== 'welcome' }">
+  <main class="hello">
     <div class="pageLanguage"><languageSelect popover /></div>
     <section class="welcomePanel" aria-labelledby="welcomeTitle">
-      <div v-if="view !== 'welcome'" class="providerContent">
-        <header class="providerHeader">
-          <el-button text :icon="IconArrowLeft" :disabled="saving" @click="view = 'welcome'">返回</el-button>
-          <h1 id="welcomeTitle">{{ view === "login" ? "登录 TF-Router" : "配置语言模型" }}</h1>
-        </header>
-        <div v-if="view === 'login'" v-loading="saving" class="loginBody" element-loading-text="正在配置文本模型和媒体模型…">
-          <iframe ref="loginFrame" class="loginFrame" :src="loginUrl" title="TF-Router 登录与注册" />
+      <div class="authContent">
+        <div class="authBrand">
+          <img class="brandLogo" :src="logoUrl" alt="" />
+          <div>
+            <h1 id="welcomeTitle">{{ activeTab === "login" ? "登录山竹漫剧" : "注册山竹漫剧" }}</h1>
+            <p>登录后进入短剧与漫剧创作工作台</p>
+          </div>
         </div>
-        <div v-else class="providerBody">
-          <languageModel />
-        </div>
-        <div v-if="view === 'login' && loginError" class="loginFeedback" role="status">
-          <el-alert :title="loginError" type="error" :closable="false" showIcon />
-          <el-button v-if="loginKey" type="primary" :loading="saving" @click="configureProviders">重试配置</el-button>
-        </div>
-        <el-button
-          v-else-if="view === 'custom'"
-          type="primary"
-          :loading="saving"
-          :disabled="!customProviders.some((provider) => provider.models.length)"
-          @click="completeSetup">
-          开始使用
-        </el-button>
-      </div>
-      <div v-else class="welcomeContent">
-        <h1 id="welcomeTitle">快速开始</h1>
-        <p class="description">选择登录TF-Router可直接自动配置，无需任何复杂操作，即可开始创作。</p>
 
-        <el-button class="loginButton" type="primary" @click="openLogin">
-          <icon-login class="buttonIcon" />
-          登录 TF-Router 自动配置
-        </el-button>
-        <el-button class="mobileConnectButton" :type="deviceHubEnabled ? 'success' : undefined" :plain="deviceHubEnabled" :icon="deviceHubEnabled || mobileConnection.mode === 'remote' ? IconDeviceDesktop : IconQrcode" @click="mobileConnectVisible = true">{{ mobileConnectionLabel }}</el-button>
-        <div class="secondaryActions">
-          <el-button class="secondaryButton" round @click="view = 'custom'">
-            <icon-key class="buttonIcon" />
-            添加私有提供商
+        <el-tabs v-model="activeTab" class="authTabs" stretch>
+          <el-tab-pane label="登录" name="login">
+            <el-form
+              ref="loginFormRef"
+              :model="loginForm"
+              :rules="loginRules"
+              labelPosition="top"
+              @submit.prevent="submitLogin">
+              <el-form-item label="用户名或邮箱" prop="username">
+                <el-input
+                  v-model="loginForm.username"
+                  autocomplete="username"
+                  maxlength="254"
+                  placeholder="请输入用户名或邮箱" />
+              </el-form-item>
+              <el-form-item label="密码" prop="password">
+                <el-input
+                  v-model="loginForm.password"
+                  type="password"
+                  autocomplete="current-password"
+                  maxlength="128"
+                  placeholder="请输入密码"
+                  showPassword
+                  @keyup.enter="submitLogin" />
+              </el-form-item>
+              <el-button class="submitButton" type="primary" nativeType="submit" :loading="submitting">
+                登录并进入工作台
+              </el-button>
+            </el-form>
+          </el-tab-pane>
+
+          <el-tab-pane label="注册" name="register">
+            <el-form
+              ref="registerFormRef"
+              :model="registerForm"
+              :rules="registerRules"
+              labelPosition="top"
+              @submit.prevent="submitRegister">
+              <el-form-item label="用户名" prop="username">
+                <el-input
+                  v-model="registerForm.username"
+                  autocomplete="username"
+                  maxlength="64"
+                  placeholder="设置登录用户名" />
+              </el-form-item>
+              <el-form-item label="邮箱" prop="email">
+                <el-input
+                  v-model="registerForm.email"
+                  type="email"
+                  autocomplete="email"
+                  maxlength="254"
+                  placeholder="用于接收验证码" />
+              </el-form-item>
+              <el-form-item label="邮箱验证码" prop="code">
+                <div class="codeRow">
+                  <el-input
+                    v-model="registerForm.code"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                    maxlength="32"
+                    placeholder="请输入验证码" />
+                  <el-button
+                    :loading="sendingCode"
+                    :disabled="codeSeconds > 0 || submitting"
+                    @click="sendVerification">
+                    {{ codeSeconds > 0 ? codeSeconds + " 秒" : "发送验证码" }}
+                  </el-button>
+                </div>
+              </el-form-item>
+              <el-form-item label="密码" prop="password">
+                <el-input
+                  v-model="registerForm.password"
+                  type="password"
+                  autocomplete="new-password"
+                  maxlength="128"
+                  placeholder="至少 8 个字符"
+                  showPassword
+                  @keyup.enter="submitRegister" />
+              </el-form-item>
+              <el-button class="submitButton" type="primary" nativeType="submit" :loading="submitting">
+                注册山竹漫剧
+              </el-button>
+            </el-form>
+          </el-tab-pane>
+        </el-tabs>
+
+        <div v-if="feedback" class="authFeedback" role="alert">
+          <el-alert :title="feedback" type="error" :closable="false" showIcon />
+          <el-button v-if="account.status === 'unknown'" :loading="checkingSession" @click="retrySession">
+            重试连接
           </el-button>
-          <span class="separator">或</span>
-          <el-button class="secondaryButton" round :loading="saving" @click="completeSetup">稍后配置</el-button>
         </div>
       </div>
 
       <footer class="pageFooter">
-        <p>© {{ new Date().getFullYear() }} Toonflow · 保留所有权利。</p>
+        <p>© {{ new Date().getFullYear() }} 山竹漫剧</p>
+        <p>基于 Toonflow v2.0.6 构建</p>
       </footer>
     </section>
+
     <div class="artPanel" aria-hidden="true">
       <bg class="artBg" />
       <div class="artBrand">
-        <span class="artLogo" v-html="logoSvg" />
-        <span class="artName">Toonflow</span>
+        <img class="artLogo" :src="logoUrl" alt="" />
+        <span class="artName">山竹漫剧</span>
       </div>
     </div>
-    <mobileConnect v-model="mobileConnectVisible" />
   </main>
 </template>
 
 <script setup lang="ts">
-import axios from "axios";
-import { defineAsyncComponent, onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
-import { IconArrowLeft, IconQrcode, IconDeviceDesktop } from "@tabler/icons-vue";
-import tfRouter from "@toonflow/providers/language/tfRouter";
-import tfRouterSource from "@toonflow/providers/media/tfRouter?raw";
-import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
-import { customProviders, saveSettings } from "@/stores/settings";
-import type { MediaProvider } from "@/components/settings/panels/mediaModel/types";
+import { ElMessage, type FormInstance, type FormRules } from "element-plus";
+import logoUrl from "@toonflow/assets/mangosteenAvatar.png";
+import { useAccountStore } from "@/stores/account";
 import { useHelloStore } from "@/stores/hello";
-import anonymousData from "@/lib/anonymousData";
-import logoSvg from "@toonflow/assets/logo.svg?raw";
 import bg from "./bg.vue";
 import languageSelect from "@/components/languageSelect.vue";
-import { deviceHubEnabled, mobileConnection, mobileConnectionLabel } from "@/lib/mobile";
 
-const languageModel = defineAsyncComponent(() => import("@/components/settings/panels/languageModel/index.vue"));
-const mobileConnect = defineAsyncComponent(() => import("@/components/mobileConnect.vue"));
-const mobileConnectVisible = ref(false);
-const view = ref<"welcome" | "login" | "custom">("welcome");
-const loginUrl = ref("https://api.toonflow.net/login?type=toonflow");
-const loginOrigin = new URL(loginUrl.value).origin;
-const loginFrame = ref<HTMLIFrameElement>();
-const loginKey = ref("");
-const loginError = ref("");
-const saving = ref(false);
 const router = useRouter();
+const account = useAccountStore();
 const hello = useHelloStore();
-let loginRequest: AbortController | undefined;
+const activeTab = ref<"login" | "register">("login");
+const loginFormRef = ref<FormInstance>();
+const registerFormRef = ref<FormInstance>();
+const submitting = ref(false);
+const sendingCode = ref(false);
+const checkingSession = ref(false);
+const formError = ref("");
+const codeSeconds = ref(0);
+const loginForm = reactive({ username: "", password: "" });
+const registerForm = reactive({ username: "", email: "", code: "", password: "" });
+let codeTimer: ReturnType<typeof setInterval> | undefined;
 
-function openLogin() {
-  const url = new URL(loginUrl.value);
-  const pageStyle = getComputedStyle(document.documentElement);
-  url.searchParams.set("bgcolor", "white");
-  url.searchParams.set("txtcolor", pageStyle.getPropertyValue("--el-color-primary").trim());
-  loginUrl.value = url.href;
-  loginKey.value = loginError.value = "";
-  view.value = "login";
-}
+const loginRules: FormRules = {
+  username: [{ required: true, message: "请输入用户名或邮箱", trigger: "blur" }],
+  password: [{ required: true, message: "请输入密码", trigger: "blur" }],
+};
+const registerRules: FormRules = {
+  username: [
+    { required: true, message: "请输入用户名", trigger: "blur" },
+    { max: 64, message: "用户名不能超过 64 个字符", trigger: "blur" },
+  ],
+  email: [
+    { required: true, message: "请输入邮箱", trigger: "blur" },
+    { type: "email", message: "请输入有效邮箱", trigger: "blur" },
+  ],
+  code: [{ required: true, message: "请输入邮箱验证码", trigger: "blur" }],
+  password: [
+    { required: true, message: "请输入密码", trigger: "blur" },
+    { min: 8, message: "密码至少需要 8 个字符", trigger: "blur" },
+  ],
+};
+const feedback = computed(() => formError.value || account.errorMessage);
 
-async function completeSetup() {
-  if (saving.value) return;
-  saving.value = true;
-  try {
-    await hello.complete();
-    anonymousData.track(view.value === "custom" ? "onboarding.complete" : "onboarding.skip");
-    await router.replace("/home");
-  } catch {
-    ElMessage.error("保存引导状态失败，请重试");
-  } finally {
-    saving.value = false;
-  }
-}
-
-function receiveLogin(event: MessageEvent) {
-  if (view.value !== "login" || saving.value || event.origin !== loginOrigin || event.source !== loginFrame.value?.contentWindow) return;
-  const data = event.data;
-  if (!data || typeof data !== "object" || !["register", "login"].includes(data.type)) return;
-  if (data.msg === "failed") {
-    loginKey.value = "";
-    loginError.value = typeof data.error === "string" && data.error.trim() ? data.error : data.type === "register" ? "注册失败" : "登录失败";
-    return;
-  }
-  if (data.msg !== "success") return;
-  loginError.value = "";
-  if (data.type === "register") {
-    ElMessage.success("注册成功，请继续登录以自动配置模型");
-    return;
-  }
-  if (typeof data.key !== "string" || !data.key.trim() || data.key.length > 8192) {
-    loginKey.value = "";
-    loginError.value = "登录未返回有效的 API Key，请重新登录";
-    return;
-  }
-  loginKey.value = data.key.trim();
-  void configureProviders();
-}
-
-async function configureProviders() {
-  if (saving.value || !loginKey.value) return;
-  saving.value = true;
-  loginError.value = "";
-  const apiKey = loginKey.value;
-  const request = new AbortController();
-  loginRequest = request;
-  try {
-    const mediaResponse = await axios.get<{ code: number; data: MediaProvider[] }>("/api/providers/media/list", { signal: request.signal });
-    if (mediaResponse.data.code !== 200 || !Array.isArray(mediaResponse.data.data)) throw new Error("读取媒体供应商失败，请重试配置");
-    request.signal.throwIfAborted();
-    if (!mediaResponse.data.data.some((provider) => provider.id === tfRouter.id)) {
-      await axios.post("/api/providers/media/add", { source: tfRouterSource }, { signal: request.signal });
+function startCodeCountdown() {
+  if (codeTimer) clearInterval(codeTimer);
+  codeSeconds.value = 60;
+  codeTimer = setInterval(() => {
+    codeSeconds.value--;
+    if (codeSeconds.value <= 0 && codeTimer) {
+      clearInterval(codeTimer);
+      codeTimer = undefined;
     }
-    request.signal.throwIfAborted();
-    // ACT: 媒体文件已安装但保存失败时保留文件，重试通过列表复用，不覆盖用户编辑的模型。
-    await saveSettings(settings => {
-      request.signal.throwIfAborted();
-      const providers = settings.customProviders ?? [];
-      if (!Array.isArray(providers)) throw new Error("语言模型配置格式无效");
-      const configs = settings.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
-      if (configs !== undefined && (!configs || typeof configs !== "object" || Array.isArray(configs))) throw new Error("媒体供应商配置格式无效");
-      const current = configs?.[tfRouter.id];
-      if (current !== undefined && (!current || typeof current !== "object" || Array.isArray(current))) throw new Error("当前供应商配置格式无效");
-      const index = providers.findIndex(provider => typeof provider?.id === "string" && provider.id.toLowerCase() === tfRouter.id.toLowerCase());
-      const previous = providers[index];
-      const provider = {
-        ...previous,
-        id: previous?.id ?? tfRouter.id,
-        label: previous?.label ?? tfRouter.label,
-        icon: previous?.icon ?? tfRouter.icon,
-        apiUrl: tfRouter.apiUrl,
-        protocol: tfRouter.protocol,
-        apiKey,
-        models: previous?.models ?? [],
-      };
-      return {
-        customProviders: index < 0 ? [...providers, provider] : providers.map((item, position) => position === index ? provider : item),
-        mediaProviderConfigs: { ...configs, [tfRouter.id]: { ...current, apiKey } },
-      };
-    });
-    invalidateNodeModels("media");
-    if (request.signal.aborted) return;
-    await hello.complete();
-    anonymousData.track("onboarding.complete");
-    loginKey.value = "";
-    ElMessage.success("TF-Router API Key 已配置完成");
-    await router.replace("/home");
-  } catch (error) {
-    if (!request.signal.aborted)
-      loginError.value = axios.isAxiosError(error)
-        ? error.response?.data?.message || "自动配置失败，请重试"
-        : error instanceof Error
-        ? error.message
-        : "自动配置失败，请重试";
+  }, 1000);
+}
+
+async function sendVerification() {
+  if (sendingCode.value || codeSeconds.value > 0) return;
+  const valid = await registerFormRef.value?.validateField("email").then(() => true, () => false);
+  if (!valid) return;
+  sendingCode.value = true;
+  formError.value = "";
+  try {
+    await account.requestVerification(registerForm.email.trim());
+    startCodeCountdown();
+    ElMessage.success("验证码已发送，请检查邮箱");
+  } catch {
+    // Store 已提供可读错误。
   } finally {
-    saving.value = false;
+    sendingCode.value = false;
   }
 }
 
-onMounted(() => {
-  window.addEventListener("message", receiveLogin);
-});
+async function submitRegister() {
+  if (submitting.value) return;
+  const valid = await registerFormRef.value?.validate().then(() => true, () => false);
+  if (!valid) return;
+  submitting.value = true;
+  formError.value = "";
+  try {
+    await account.register({
+      username: registerForm.username.trim(),
+      email: registerForm.email.trim(),
+      code: registerForm.code.trim(),
+      password: registerForm.password,
+    });
+    loginForm.username = registerForm.username.trim();
+    loginForm.password = "";
+    registerForm.password = "";
+    registerForm.code = "";
+    activeTab.value = "login";
+    ElMessage.success("注册成功，请使用新账号登录");
+  } catch {
+    // Store 已提供可读错误。
+  } finally {
+    submitting.value = false;
+  }
+}
+
+async function submitLogin() {
+  if (submitting.value) return;
+  const valid = await loginFormRef.value?.validate().then(() => true, () => false);
+  if (!valid) return;
+  submitting.value = true;
+  formError.value = "";
+  try {
+    await account.login(loginForm.username.trim(), loginForm.password);
+    loginForm.password = "";
+    await hello.complete();
+    await router.replace("/home");
+  } catch (cause) {
+    if (account.status === "authenticated") {
+      formError.value = cause instanceof Error ? cause.message : "登录成功，但客户端初始化失败，请重试";
+    }
+  } finally {
+    submitting.value = false;
+  }
+}
+
+async function retrySession() {
+  if (checkingSession.value) return;
+  checkingSession.value = true;
+  formError.value = "";
+  try {
+    await account.restore();
+    if (account.status === "authenticated") await router.replace("/home");
+  } catch {
+    // Store 已提供可读错误。
+  } finally {
+    checkingSession.value = false;
+  }
+}
+
 onBeforeUnmount(() => {
-  window.removeEventListener("message", receiveLogin);
-  loginRequest?.abort();
-  loginKey.value = "";
+  if (codeTimer) clearInterval(codeTimer);
+  loginForm.password = "";
+  registerForm.password = "";
 });
 </script>
 
@@ -231,121 +284,86 @@ onBeforeUnmount(() => {
   .welcomePanel {
     display: grid;
     grid-template-rows: 1fr auto 1fr;
-    gap: 32px;
+    gap: 28px;
     min-width: 0;
-    min-height: 544px;
+    min-height: 620px;
     padding: 48px clamp(24px, 4.4vw, 64px);
 
-    .providerContent {
-      grid-row: 1;
-      display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto;
-      gap: 24px;
-      min-width: 0;
-      min-height: 0;
-      overflow: hidden;
-
-      .providerHeader {
-        h1 {
-          margin: 16px 0 0;
-          font-size: 28px;
-          font-weight: 650;
-        }
-      }
-
-      .providerBody {
-        min-height: 0;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        padding: 2px;
-      }
-
-      .loginBody {
-        min-height: 0;
-        overflow-y: hidden;
-        overscroll-behavior: contain;
-        background-color: #fff;
-        border-radius: var(--ui-radius);
-        width: 500px;
-
-        .loginFrame {
-          display: block;
-          width: 100%;
-          height: 100%;
-          min-height: 640px;
-          border: 0;
-          background: transparent;
-        }
-      }
-
-      .loginFeedback {
-        display: grid;
-        gap: 12px;
-      }
-    }
-
-    .welcomeContent {
+    .authContent {
       grid-row: 2;
-      width: 100%;
-      max-width: 420px;
-      text-align: center;
+      width: min(100%, 440px);
+      justify-self: center;
 
-      h1 {
-        margin: 0 0 12px;
-        font-size: clamp(32px, 3.4vw, 40px);
-        font-weight: 650;
-        line-height: 1.35;
-        letter-spacing: -0.8px;
-      }
-
-      .description {
-        margin: 0 0 32px;
-        color: var(--el-text-color-secondary);
-        font-size: 14px;
-        line-height: 1.8;
-      }
-
-      .buttonIcon {
-        width: 18px;
-        height: 18px;
-        margin-inline-end: 8px;
-      }
-
-      .loginButton {
-        width: 100%;
-        height: auto;
-        min-height: 50px;
-        padding: 12px;
-        white-space: normal;
-        border-radius: calc(var(--ui-radius) * 1.625);
-        font-size: 16px;
-        font-weight: 600;
-      }
-
-      .secondaryActions {
+      .authBrand {
         display: flex;
-        flex-wrap: wrap;
         align-items: center;
-        justify-content: center;
-        gap: 10px;
-        margin-top: 20px;
+        gap: 14px;
+        margin-bottom: 24px;
 
-        .separator {
-          color: var(--el-text-color-secondary);
-          font-size: 13px;
+        .brandLogo {
+          width: 52px;
+          height: 52px;
+          flex-shrink: 0;
+          border-radius: 16px;
+          object-fit: cover;
+          box-shadow: var(--el-box-shadow-light);
         }
 
-        .secondaryButton {
-          height: auto;
-          min-height: 36px;
+        h1 {
+          margin: 0 0 4px;
+          font-size: clamp(28px, 3vw, 36px);
+          font-weight: 650;
+          line-height: 1.3;
+          letter-spacing: -0.6px;
+        }
+
+        p {
           margin: 0;
-          padding: 8px 16px;
-          white-space: normal;
-          font-size: 13px;
+          color: var(--el-text-color-secondary);
+          font-size: 14px;
+          line-height: 1.6;
         }
       }
 
-      .mobileConnectButton { width: 100%; margin: 12px 0 0; min-height: 42px; }
+      .authTabs {
+        :deep(.el-tabs__header) {
+          margin-bottom: 22px;
+        }
+
+        :deep(.el-form-item) {
+          margin-bottom: 18px;
+        }
+
+        .codeRow {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 10px;
+          width: 100%;
+
+          .el-button {
+            min-width: 112px;
+          }
+        }
+
+        .submitButton {
+          width: 100%;
+          min-height: 46px;
+          margin-top: 4px;
+          border-radius: calc(var(--ui-radius) * 1.25);
+          font-size: 15px;
+          font-weight: 600;
+        }
+      }
+
+      .authFeedback {
+        display: grid;
+        gap: 10px;
+        margin-top: 16px;
+
+        .el-button {
+          justify-self: start;
+        }
+      }
     }
 
     .pageFooter {
@@ -355,24 +373,8 @@ onBeforeUnmount(() => {
       font-size: 12px;
 
       p {
-        margin: 10px 0 0;
-        line-height: 1.6;
-      }
-    }
-  }
-
-  &.configuring {
-    height: 100dvh;
-    min-height: 0;
-    overflow: hidden;
-
-    .welcomePanel {
-      grid-template-rows: minmax(0, 1fr) auto;
-      gap: 24px;
-      min-height: 0;
-
-      .pageFooter {
-        grid-row: 2;
+        margin: 4px 0 0;
+        line-height: 1.5;
       }
     }
   }
@@ -402,19 +404,11 @@ onBeforeUnmount(() => {
       color: #fff;
 
       .artLogo {
-        width: 44px;
-        height: 44px;
-        line-height: 0;
-
-        :deep(svg) {
-          display: block;
-          width: 100%;
-          height: 100%;
-        }
-
-        :deep(path) {
-          fill: #fff;
-        }
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        object-fit: cover;
+        box-shadow: 0 8px 24px rgb(22 45 40 / 22%);
       }
 
       .artName {
@@ -425,7 +419,7 @@ onBeforeUnmount(() => {
     }
   }
 
-  @media (max-width: 700px) {
+  @media (max-width: 800px) {
     grid-template-columns: 1fr;
 
     .pageLanguage {
@@ -434,15 +428,33 @@ onBeforeUnmount(() => {
     }
 
     .welcomePanel {
-      padding: 32px 20px;
-
-      .welcomeContent {
-        justify-self: center;
-      }
+      min-height: 100svh;
+      padding: 72px 20px 28px;
     }
 
     .artPanel {
       display: none;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .welcomePanel .authContent {
+      .authBrand {
+        align-items: flex-start;
+
+        .brandLogo {
+          width: 46px;
+          height: 46px;
+        }
+      }
+
+      .authTabs .codeRow {
+        grid-template-columns: 1fr;
+
+        .el-button {
+          width: 100%;
+        }
+      }
     }
   }
 }
