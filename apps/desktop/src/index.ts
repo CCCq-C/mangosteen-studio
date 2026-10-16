@@ -97,14 +97,14 @@ async function start() {
           { type: "separator" },
           { role: "quit" },
         ] },
-        { label: t`编辑`, submenu: [
-          { role: "undo", label: t`撤销` },
-          { role: "redo", label: t`重做` },
+        { label: "编辑", submenu: [
+          { role: "undo", label: "撤销" },
+          { role: "redo", label: "重做" },
           { type: "separator" },
-          { role: "cut", label: t`剪切` },
-          { role: "copy", label: t`复制` },
-          { role: "paste", label: t`粘贴` },
-          { role: "selectAll", label: t`全选` },
+          { role: "cut", label: "剪切" },
+          { role: "copy", label: "复制" },
+          { role: "paste", label: "粘贴" },
+          { role: "selectAll", label: "全选" },
         ] },
       ]);
     }
