@@ -99,6 +99,7 @@ declare module 'vue' {
     Menu: typeof import('./../components/agent/menu.vue')['default']
     MessageMarkdown: typeof import('./../components/messageMarkdown.vue')['default']
     MobileConnect: typeof import('./../components/mobileConnect.vue')['default']
+    ModelCatalog: typeof import('./../components/settings/modelCatalog.vue')['default']
     ModelPopover: typeof import('./../components/modelPopover.vue')['default']
     NodeMenuSettings: typeof import('./../components/settings/panels/general/nodeMenuSettings.vue')['default']
     Personalization: typeof import('./../components/settings/panels/personalization.vue')['default']
