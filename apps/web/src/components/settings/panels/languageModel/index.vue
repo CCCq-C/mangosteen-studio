@@ -1,6 +1,6 @@
 <template>
   <div class="modelSettings">
-    <modelCatalog :types="['language']" :visible="visible" notice="这里展示当前账号实时返回的文本模型；文本生成调用将在后续批次接入。" />
+    <modelCatalog :types="['language']" :visible="visible" notice="当前账号的文本模型会按上游分组同步到灵感创作、新对话和文本节点。" />
     <el-collapse v-model="advancedSections" class="advancedSettings">
       <el-collapse-item name="providers">
         <template #title>

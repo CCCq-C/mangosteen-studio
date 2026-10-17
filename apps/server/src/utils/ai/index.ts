@@ -13,6 +13,9 @@ import { readFile, stat } from "@toonflow/file";
 import { resolveWorkspacePath } from "@/utils/workspace/files";
 import { getReadableFileMimeType } from "@/lib/documentFormats";
 import { readDocument } from "@/utils/documents";
+import { aihubkitLanguageGroupId, aihubkitLanguageProviderId } from "@toonflow/providers/language/aiHubKit";
+import { getAihubkitCatalog, getAihubkitModelCandidate } from "@/utils/aihubkit/catalog";
+import { aihubkitApiBase } from "@/utils/aihubkit/client";
 
 export { fetchProviderModels } from "@/utils/ai/models";
 export { refreshProviderModels } from "@/utils/ai/initialize";
@@ -51,7 +54,7 @@ export function getModelLimits(providerId: string, model: z.infer<typeof provide
   };
 }
 
-export function getConfiguredModel(providerId: string, modelId: string) {
+function getCustomConfiguredModel(providerId: string, modelId: string) {
   const providers = conf.get("settings", {}).customProviders;
   const parsed = providerSchema.safeParse(Array.isArray(providers) ? providers.find(item => item?.id === providerId) : undefined);
   if (!parsed.success) throw Object.assign(new Error("请先在设置中配置模型供应商"), { status: 400 });
@@ -64,7 +67,27 @@ export function getConfiguredModel(providerId: string, modelId: string) {
   return { provider, model: { ...model, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens }, baseUrl: baseUrl.href.replace(/\/+$/, "") };
 }
 
-export function listAiModels() {
+export async function getConfiguredModel(providerId: string, modelId: string) {
+  const groupId = aihubkitLanguageGroupId(providerId);
+  if (!groupId) return getCustomConfiguredModel(providerId, modelId);
+  const candidate = await getAihubkitModelCandidate(modelId, "language", groupId);
+  if (!candidate) throw Object.assign(new Error("所选文本模型或分组已失效，请重新选择"), { status: 400 });
+  const configuredModel = { id: modelId, label: modelId };
+  const limits = getModelLimits(providerId, configuredModel);
+  const provider: z.infer<typeof providerSchema> = {
+    apiUrl: aihubkitApiBase,
+    apiKey: candidate.apiKey,
+    protocol: "openai-completions",
+    models: [configuredModel],
+  };
+  return {
+    provider,
+    model: { ...configuredModel, contextWindow: limits.contextWindow, maxOutputTokens: limits.maxTokens },
+    baseUrl: `${aihubkitApiBase}/v1`,
+  };
+}
+
+function listCustomAiModels() {
   const providers = conf.get("settings", {}).customProviders;
   if (!Array.isArray(providers)) return [];
   return providers.flatMap(item => {
@@ -79,6 +102,25 @@ export function listAiModels() {
       };
     });
   });
+}
+
+export async function listAiModels() {
+  const customModels = listCustomAiModels();
+  const catalog = await getAihubkitCatalog();
+  const dynamicModels = catalog.models.filter(model => model.type === "language").flatMap(model => model.groups.map(group => {
+    const providerId = aihubkitLanguageProviderId(group.id);
+    const limits = getModelLimits(providerId, model);
+    return {
+      providerId,
+      providerLabel: `AIHubKit · ${group.label}`,
+      protocol: "openai-completions" as const,
+      modelId: model.id,
+      label: model.label,
+      contextWindow: limits.contextWindow,
+      maxOutputTokens: limits.maxTokens,
+    };
+  }));
+  return [...dynamicModels, ...customModels];
 }
 
 const aiApis = {
@@ -147,7 +189,7 @@ export function referenceContent(protocol: string, prompt: string, references: A
 }
 
 export function streamAi(
-  configured: ReturnType<typeof getConfiguredModel>,
+  configured: Awaited<ReturnType<typeof getConfiguredModel>>,
   context: Context,
   signal: AbortSignal,
   references: Awaited<ReturnType<typeof readAiReferences>> = [],

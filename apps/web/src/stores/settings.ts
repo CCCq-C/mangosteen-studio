@@ -1,10 +1,12 @@
 import axios from "axios";
 import { normalizeLocale } from "@toonflow/i18n";
+import { aihubkitLanguageProviderId } from "@toonflow/providers/language/aiHubKit";
 import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 import { canvasShortcutFields, defaultCanvasShortcuts, getShortcutBindings, isShortcutAllowed, normalizeShortcut, type CanvasShortcuts } from "@/lib/canvasShortcuts";
 import { normalizeNodeMenu, type StoredNodeMenuItem } from "@toonflow/server/nodeMenu";
+import { aihubkitCatalog } from "@/lib/aihubkitCatalog";
 import "element-plus/es/components/message/style/css";
 
 export const settings = ref<Record<string, unknown>>({});
@@ -89,12 +91,23 @@ export const privacySettings = computed(() => {
 
 export type CustomProviderModel = { id: string; label: string; contextWindow?: number; maxOutputTokens?: number };
 export type CustomProvider = { id: string; label: string; icon?: string; version?: string; apiUrl: string; apiKey: string; protocol: string; models: CustomProviderModel[] };
+type LanguageModelGroup = { id: string; label: string; models: CustomProviderModel[] };
 export const customProviders = computed<CustomProvider[]>(() => Array.isArray(settings.value.customProviders)
   ? settings.value.customProviders.filter((item): item is CustomProvider => !!item && typeof item.id === "string" && typeof item.label === "string" && Array.isArray(item.models)
     && item.models.every((model: CustomProviderModel) => !!model && typeof model.id === "string" && typeof model.label === "string"))
   : []);
 
-export const modelChoices = computed(() => customProviders.value.flatMap(provider => provider.models.map(model => ({
+export const languageModelGroups = computed<LanguageModelGroup[]>(() => {
+  const catalog = aihubkitCatalog.value;
+  const dynamic = (catalog?.groups ?? []).flatMap(group => {
+    const models = (catalog?.models ?? []).filter(model => model.type === "language" && model.groups.some(item => item.id === group.id))
+      .map(model => ({ id: model.id, label: model.label }));
+    return models.length ? [{ id: aihubkitLanguageProviderId(group.id), label: `AIHubKit · ${group.label}`, models }] : [];
+  });
+  return [...dynamic, ...customProviders.value.map(provider => ({ id: provider.id, label: provider.label, models: provider.models }))];
+});
+
+export const modelChoices = computed(() => languageModelGroups.value.flatMap(provider => provider.models.map(model => ({
   value: JSON.stringify([provider.id, model.id]), providerId: provider.id, modelId: model.id, label: model.label, contextWindow: model.contextWindow,
 }))));
 
