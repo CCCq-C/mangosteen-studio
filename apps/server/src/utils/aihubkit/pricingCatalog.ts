@@ -145,8 +145,8 @@ export function refreshAihubkitPricingCatalog() {
 }
 
 export async function getAihubkitPricingCatalog(force = false) {
+  if (!force && currentPricing && Date.now() - currentPricing.syncedAt < pricingMaxAge) return currentPricing;
   const session = await getAihubkitPricingSession();
-  if (!force && currentPricing?.userId === session.userId && Date.now() - currentPricing.syncedAt < pricingMaxAge) return currentPricing;
   try {
     return await refreshAihubkitPricingCatalog();
   } catch (error) {

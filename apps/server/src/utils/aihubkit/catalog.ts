@@ -1,5 +1,12 @@
 import { AihubkitServiceError, requestAihubkitEnvelope, requestAihubkitJson } from "@/utils/aihubkit/client";
 import { getAihubkitAccess, saveGroupApiKeys } from "@/utils/aihubkit/account";
+import {
+  clearAihubkitPricing,
+  getAihubkitPriceSummary,
+  getAihubkitPricing,
+  type AihubkitPriceSummary,
+  type AihubkitPricingSnapshot,
+} from "@/utils/aihubkit/pricing";
 
 export type AihubkitModelType = "image" | "video" | "language" | "unknown";
 
@@ -7,6 +14,7 @@ export interface AihubkitCatalogGroup {
   id: string;
   label: string;
   ratio: number;
+  price?: AihubkitPriceSummary;
 }
 
 export interface AihubkitCatalogModel {
@@ -23,6 +31,9 @@ export interface AihubkitCatalog {
   models: AihubkitCatalogModel[];
   unknownModelCount: number;
   partial: boolean;
+  pricingAvailable: boolean;
+  pricingVersion?: string;
+  pricingSyncedAt?: number;
 }
 
 type GroupInfo = AihubkitCatalogGroup;
@@ -136,13 +147,19 @@ function publicCatalog(state: CatalogState): AihubkitCatalog {
     revision: state.revision,
     syncedAt: state.syncedAt,
     groups: state.groups.map(group => ({ ...group })),
-    models: state.models.map(model => ({ ...model, groups: model.groups.map(group => ({ ...group })) })),
+    models: state.models.map(model => ({
+      ...model,
+      groups: model.groups.map(group => ({ ...group, ...(group.price ? { price: { ...group.price } } : {}) })),
+    })),
     unknownModelCount: state.unknownModelCount,
     partial: state.partial,
+    pricingAvailable: state.pricingAvailable,
+    ...(state.pricingVersion ? { pricingVersion: state.pricingVersion } : {}),
+    ...(state.pricingSyncedAt ? { pricingSyncedAt: state.pricingSyncedAt } : {}),
   };
 }
 
-function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, partial: boolean) {
+function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, partial: boolean, pricing?: AihubkitPricingSnapshot) {
   const models = new Map<string, AihubkitCatalogModel>();
   const candidates = new Map<string, { group: string; apiKey: string }[]>();
   const unknownModels = new Set<string>();
@@ -155,7 +172,8 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
       }
       const key = `${type}\u0000${id}`;
       const model = models.get(key) ?? { id, label: id, type, groups: [] };
-      model.groups.push({ ...group.info });
+      const price = pricing && getAihubkitPriceSummary(pricing, id, group.info.id);
+      model.groups.push({ ...group.info, ...(price ? { price } : {}) });
       models.set(key, model);
       const entries = candidates.get(key) ?? [];
       entries.push({ group: group.info.id, apiKey: group.apiKey });
@@ -170,6 +188,8 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
     models: [...models.values()].sort((left, right) => left.type.localeCompare(right.type) || left.label.localeCompare(right.label)),
     unknownModelCount: unknownModels.size,
     partial,
+    pricingAvailable: Boolean(pricing),
+    ...(pricing ? { pricingVersion: pricing.pricingVersion, pricingSyncedAt: pricing.syncedAt } : {}),
     groupCatalogs,
     candidates,
   } satisfies CatalogState;
@@ -183,7 +203,7 @@ function scheduleRefresh() {
   refreshTimer.unref?.();
 }
 
-async function synchronizeCatalog(epoch: number) {
+async function synchronizeCatalog(epoch: number, forcePricing = false) {
   const access = await getAihubkitAccess();
   const { envelope } = await requestAihubkitEnvelope("/api/user/self/groups", {
     headers: {
@@ -232,14 +252,21 @@ async function synchronizeCatalog(epoch: number) {
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
   if (JSON.stringify(keys) !== JSON.stringify(access.groupApiKeys)) await saveGroupApiKeys(access.userId, keys);
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
-  currentCatalog = buildCatalog(access.userId, next, partial);
+  let pricing: AihubkitPricingSnapshot | undefined;
+  try {
+    pricing = await getAihubkitPricing(forcePricing);
+  } catch {
+    if (forcePricing) pricing = await getAihubkitPricing().catch(() => undefined);
+  }
+  if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
+  currentCatalog = buildCatalog(access.userId, next, partial, pricing);
   scheduleRefresh();
   return publicCatalog(currentCatalog);
 }
 
-export function refreshAihubkitCatalog() {
+export function refreshAihubkitCatalog(forcePricing = false) {
   if (refreshRequest) return refreshRequest;
-  const request = synchronizeCatalog(catalogEpoch);
+  const request = synchronizeCatalog(catalogEpoch, forcePricing);
   const tracked = request.finally(() => {
     if (refreshRequest === tracked) refreshRequest = undefined;
   });
@@ -250,7 +277,7 @@ export function refreshAihubkitCatalog() {
 export async function getAihubkitCatalog(force = false) {
   if (!force && currentCatalog && Date.now() - currentCatalog.syncedAt < catalogMaxAge) return publicCatalog(currentCatalog);
   try {
-    return await refreshAihubkitCatalog();
+    return await refreshAihubkitCatalog(force);
   } catch (error) {
     if (error instanceof AihubkitServiceError && error.status === 401) clearAihubkitCatalog();
     if (!force && currentCatalog) return publicCatalog(currentCatalog);
@@ -275,4 +302,5 @@ export function clearAihubkitCatalog() {
   refreshTimer = undefined;
   refreshRequest = undefined;
   currentCatalog = undefined;
+  clearAihubkitPricing();
 }

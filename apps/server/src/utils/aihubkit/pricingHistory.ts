@@ -30,6 +30,7 @@ const maxSamplesPerUser = 500;
 let historyRequest: Promise<void> | undefined;
 let scheduledRefresh: ReturnType<typeof setTimeout> | undefined;
 let latestModels: ReadonlyMap<string, AihubkitRawPricingModel> | undefined;
+let latestUserId: number | undefined;
 
 function object(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -193,6 +194,7 @@ function logSample(value: unknown, userId: number, models: ReadonlyMap<string, A
 
 async function synchronizeHistory(models: ReadonlyMap<string, AihubkitRawPricingModel>, force: boolean) {
   const access = await getAihubkitAccess();
+  latestUserId = access.userId;
   const history = storedHistory();
   const userKey = String(access.userId);
   if (!force && history[userKey] && Date.now() - history[userKey].updatedAt < historyMaxAge) return;
@@ -222,6 +224,7 @@ async function synchronizeHistory(models: ReadonlyMap<string, AihubkitRawPricing
 
 export function refreshAihubkitPriceHistory(models: ReadonlyMap<string, AihubkitRawPricingModel>, force = false) {
   latestModels = models;
+  if (!force && latestUserId && Date.now() - (storedHistory()[String(latestUserId)]?.updatedAt ?? 0) < historyMaxAge) return Promise.resolve();
   if (historyRequest) return historyRequest;
   const request = synchronizeHistory(models, force);
   const tracked = request.finally(() => {
@@ -254,6 +257,7 @@ export function scheduleAihubkitPriceHistoryRefresh() {
 
 export function clearAihubkitPriceHistoryRuntime() {
   latestModels = undefined;
+  latestUserId = undefined;
   if (scheduledRefresh) clearTimeout(scheduledRefresh);
   scheduledRefresh = undefined;
 }
