@@ -31,6 +31,12 @@ function taskState(value: unknown) {
   return (text(data.status) || text(data.state) || text(nested.status) || text(nested.state) || text(object(nested.task).status)).toLowerCase();
 }
 
+function outputAvailability(value: unknown) {
+  const data = object(value);
+  const nested = object(data.data);
+  return (text(object(data.output).availability) || text(object(nested.output).availability)).toLowerCase();
+}
+
 function imageItems(value: unknown) {
   const data = object(value);
   const nested = object(data.data);
@@ -159,7 +165,11 @@ async function createImage(context: ProviderContext, apiKey: string, body: Recor
     if (["failed", "failure", "error", "cancelled", "canceled", "rejected"].includes(state)) {
       throw new Error(context.tool.errorMessage(result.payload) || "AIHubKit 图片任务执行失败");
     }
-    if (["completed", "succeeded", "success"].includes(state)) throw new Error("AIHubKit 图片任务已完成，但没有返回图片");
+    if (["completed", "succeeded", "success"].includes(state)) {
+      // ACT: AIHubKit 会先把任务标记成功，再异步归档图片；归档完成前继续轮询。
+      if (outputAvailability(result.payload) === "archiving") continue;
+      throw new Error("AIHubKit 图片任务已完成，但没有返回图片");
+    }
   }
 }
 
