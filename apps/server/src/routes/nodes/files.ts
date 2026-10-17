@@ -24,5 +24,5 @@ export default router.get("/", validateFields({ name: z.string().regex(/^[a-z][a
   });
   if (disabled) return res.status(404).json(error("节点已禁用", null, 404));
   res.set("Cache-Control", "no-cache");
-  await sendFile(res, filePath);
+  await sendFile(res, filePath, { dotfiles: "allow" });
 });
