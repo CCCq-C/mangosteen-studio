@@ -11,29 +11,44 @@
     <el-alert v-if="errorMessage" :title="errorMessage" type="error" :closable="false" showIcon />
     <el-skeleton v-if="loading && !loaded" :rows="6" animated />
     <template v-else>
-      <el-table v-loading="loading" :data="items" rowKey="id" stripe size="small" emptyText="暂无使用记录">
-        <el-table-column label="时间" width="168">
+      <el-table
+        v-loading="loading"
+        class="usageTable"
+        :data="items"
+        rowKey="id"
+        stripe
+        size="small"
+        emptyText="暂无使用记录"
+        @row-click="showDetails">
+        <el-table-column label="时间" width="148">
           <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column prop="modelName" label="模型" minWidth="180" showOverflowTooltip>
+        <el-table-column prop="modelName" label="模型" minWidth="152" showOverflowTooltip>
           <template #default="{ row }">{{ row.modelName || "—" }}</template>
         </el-table-column>
-        <el-table-column prop="groupName" label="分组" minWidth="130" showOverflowTooltip>
+        <el-table-column prop="groupName" label="分组" minWidth="110" showOverflowTooltip>
           <template #default="{ row }">{{ row.groupName || "—" }}</template>
         </el-table-column>
-        <el-table-column label="用量" minWidth="180">
+        <el-table-column label="状态" width="72" align="center">
           <template #default="{ row }">
-            <span v-if="row.promptTokens || row.completionTokens">
-              输入 {{ integerFormat.format(row.promptTokens) }} · 输出 {{ integerFormat.format(row.completionTokens) }}
-            </span>
-            <span v-else>—</span>
+            <el-tag :type="statusType(row.type)" effect="light" size="small">{{ statusLabel(row.type) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="耗时" width="90" align="right">
+        <el-table-column label="用量" minWidth="136">
+          <template #default="{ row }">
+            {{ formatTokens(row) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时" width="76" align="right">
           <template #default="{ row }">{{ formatDuration(row.useTime) }}</template>
         </el-table-column>
-        <el-table-column label="实际扣费" width="132" align="right">
+        <el-table-column label="实际扣费" width="116" align="right">
           <template #default="{ row }"><strong>{{ amountFormat.format(row.amount) }} 额度</strong></template>
+        </el-table-column>
+        <el-table-column label="" width="58" align="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click.stop="showDetails(row)">详情</el-button>
+          </template>
         </el-table-column>
       </el-table>
       <el-pagination
@@ -49,6 +64,46 @@
         @currentChange="changePage" />
       <el-text v-else-if="total" class="usageTotal" size="small" type="info">共 {{ integerFormat.format(total) }} 条记录</el-text>
     </template>
+
+    <el-drawer v-model="detailVisible" title="日志详情" size="460px" append-to-body>
+      <template v-if="selectedLog">
+        <el-alert
+          v-if="selectedLog.type === 5"
+          class="detailAlert"
+          title="这次请求没有成功"
+          :description="selectedLog.detailMessage || '上游没有返回更多错误说明。'"
+          type="error"
+          :closable="false"
+          showIcon />
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="状态">
+            <el-tag :type="statusType(selectedLog.type)" effect="light" size="small">
+              {{ statusLabel(selectedLog.type) }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="时间">{{ formatTime(selectedLog.createdAt) }}</el-descriptions-item>
+          <el-descriptions-item label="模型">{{ selectedLog.modelName || "—" }}</el-descriptions-item>
+          <el-descriptions-item label="分组">{{ selectedLog.groupName || "—" }}</el-descriptions-item>
+          <el-descriptions-item label="用量">{{ formatTokens(selectedLog) }}</el-descriptions-item>
+          <el-descriptions-item label="耗时">{{ formatDuration(selectedLog.useTime) }}</el-descriptions-item>
+          <el-descriptions-item label="实际扣费">
+            <strong>{{ amountFormat.format(selectedLog.amount) }} 额度</strong>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="selectedLog.statusCode !== undefined" label="状态码">
+            {{ selectedLog.statusCode }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="selectedLog.errorType" label="错误类型">
+            {{ selectedLog.errorType }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="selectedLog.errorCode" label="错误代码">
+            {{ selectedLog.errorCode }}
+          </el-descriptions-item>
+          <el-descriptions-item label="请求编号">
+            <span class="requestId">{{ selectedLog.requestId || "—" }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+      </template>
+    </el-drawer>
   </section>
 </template>
 
@@ -66,6 +121,8 @@ const items = ref<AihubkitUsageLog[]>([]);
 const loading = ref(false);
 const loaded = ref(false);
 const errorMessage = ref("");
+const detailVisible = ref(false);
+const selectedLog = ref<AihubkitUsageLog>();
 const integerFormat = computedFormat({ maximumFractionDigits: 0 });
 const amountFormat = computedFormat({ maximumFractionDigits: 6 });
 let loadRequest = 0;
@@ -89,6 +146,29 @@ function formatDuration(value: number) {
   if (!value) return "—";
   if (value < 60) return `${amountFormat.format(value)} 秒`;
   return `${amountFormat.format(value / 60)} 分钟`;
+}
+
+function formatTokens(value: unknown) {
+  const log = value as AihubkitUsageLog;
+  if (!log.promptTokens && !log.completionTokens) return "—";
+  return `输入 ${integerFormat.format(log.promptTokens)} · 输出 ${integerFormat.format(log.completionTokens)}`;
+}
+
+function statusLabel(type: number) {
+  if (type === 5) return "错误";
+  if (type === 2) return "成功";
+  return "记录";
+}
+
+function statusType(type: number): "danger" | "success" | "info" {
+  if (type === 5) return "danger";
+  if (type === 2) return "success";
+  return "info";
+}
+
+function showDetails(value: unknown) {
+  selectedLog.value = value as AihubkitUsageLog;
+  detailVisible.value = true;
 }
 
 async function loadLogs() {
@@ -151,6 +231,10 @@ watch(() => visible, value => {
     justify-self: end;
   }
 
+  .usageTable :deep(.el-table__row) {
+    cursor: pointer;
+  }
+
   .usageTotal {
     justify-self: end;
   }
@@ -161,5 +245,13 @@ watch(() => visible, value => {
       flex-direction: column;
     }
   }
+}
+
+.detailAlert {
+  margin-bottom: 16px;
+}
+
+.requestId {
+  word-break: break-all;
 }
 </style>

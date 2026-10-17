@@ -1,6 +1,6 @@
 # 山竹漫剧 AIHubKit 余额与使用日志设计
 
-- 状态：已确认，待实施
+- 状态：已实施并验收
 - 确认日期：2026-10-18
 - 采用方案：A（画布直接显示当前账户余额；设置中提供当前账户使用日志）
 - 上游文档：`https://86bdknokqu.apifox.cn/9446929m0`
@@ -52,6 +52,10 @@ interface AihubkitUsageLog {
   useTime: number;
   amount: number;
   requestId: string;
+  detailMessage: string;
+  errorCode: string;
+  errorType: string;
+  statusCode?: number;
 }
 
 interface AihubkitUsageLogPage {
@@ -76,7 +80,8 @@ interface AihubkitUsageLogPage {
 ### 5.2 设置使用日志
 
 - 设置侧栏新增“账户”分组，包含“使用日志”。
-- 表格列为：时间、模型、分组、用量、耗时、实际扣费。
+- 表格列为：时间、模型、分组、状态、用量、耗时、实际扣费，并支持点击任意一行或“详情”。
+- 错误记录在详情抽屉中展示上游 `content`、`status_code`、`error_code` 与 `error_type`；成功记录展示本次用量和请求编号。
 - 文本请求的用量显示输入与输出 Token；媒体请求没有 Token 时显示“—”。
 - 实际扣费按 `quota / 500000` 显示，最多六位小数，单位为“额度”。
 - 每页 20 条，使用上游总数和分页；打开面板加载，用户可手动刷新。
@@ -95,5 +100,6 @@ interface AihubkitUsageLogPage {
 2. 当前真实账户余额与 `/api/user/self` 的 `quota / 500000` 一致。
 3. 设置中可以打开“使用日志”，分页数据来自 `/api/log/self`。
 4. 任一日志的实际扣费与上游 `quota / 500000` 一致，模型和分组字段一致。
-5. Web 响应和界面不出现 Access Token、Cookie、分组 Key、用户 IP、Token ID 或原始 `other`。
-6. Server/Web typecheck、全量 build、macOS 安装包构建与已安装客户端界面检查通过。
+5. 错误日志可以打开详情，并与上游错误正文、状态码、错误代码和错误类型一致。
+6. Web 响应和界面不出现 Access Token、Cookie、分组 Key、用户 IP、Token ID、渠道信息或原始 `other`。
+7. Server/Web typecheck、全量 build、macOS 安装包构建与已安装客户端界面检查通过。

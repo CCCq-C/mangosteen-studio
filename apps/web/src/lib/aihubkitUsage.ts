@@ -18,6 +18,10 @@ export interface AihubkitUsageLog {
   useTime: number;
   amount: number;
   requestId: string;
+  detailMessage: string;
+  errorCode: string;
+  errorType: string;
+  statusCode?: number;
 }
 
 export interface AihubkitUsageLogQuery {
@@ -93,7 +97,11 @@ function usageLog(value: unknown): value is AihubkitUsageLog {
     && safeInteger(data.completionTokens)
     && finiteNonnegative(data.useTime)
     && finiteNonnegative(data.amount)
-    && typeof data.requestId === "string";
+    && typeof data.requestId === "string"
+    && typeof data.detailMessage === "string"
+    && typeof data.errorCode === "string"
+    && typeof data.errorType === "string"
+    && (data.statusCode === undefined || safeInteger(data.statusCode) && data.statusCode <= 999);
 }
 
 function usageLogPage(value: unknown): AihubkitUsageLogPage {

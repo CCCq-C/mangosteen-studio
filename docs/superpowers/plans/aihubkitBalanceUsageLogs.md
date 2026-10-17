@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/aihubkitBalanceUsageLogsDesign.md`
 
+**Status:** 已完成并通过真实账户、macOS 安装版与界面验收。
+
 ---
 
 ## Global Constraints
@@ -97,7 +99,7 @@ export function clearAihubkitUsage(): void;
 - [ ] **Step 1:** 新建 Axios 读取模型，复用 `/api/desktop/account`、桌面请求头、统一响应校验与可读错误。
 - [ ] **Step 2:** 画布菜单删除 provider balance/TF account 依赖，显示单个山竹余额按钮并在挂载时读取、点击时强制刷新。
 - [ ] **Step 3:** 删除工作区对 `useProviderBalances()` 的调用；不删除仍被高级供应商设置复用的通用 provider billing 文件。
-- [ ] **Step 4:** 新建使用日志面板，完成加载、错误、空状态、六列表格、20 条分页与刷新。
+- [ ] **Step 4:** 新建使用日志面板，完成加载、错误、空状态、状态标签、20 条分页、刷新与日志详情抽屉。
 - [ ] **Step 5:** 设置侧栏新增“账户 / 使用日志”，使用 Tabler 现有图标，不引入依赖。
 - [ ] **Step 6:** 执行 Web typecheck 与 build，期望退出码 0；提交 `feat: show balance and usage logs`。
 

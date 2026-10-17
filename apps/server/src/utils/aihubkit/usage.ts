@@ -18,6 +18,10 @@ export interface AihubkitUsageLog {
   useTime: number;
   amount: number;
   requestId: string;
+  detailMessage: string;
+  errorCode: string;
+  errorType: string;
+  statusCode?: number;
 }
 
 export interface AihubkitUsageLogQuery {
@@ -56,6 +60,20 @@ function text(value: unknown, maximumLength = 256) {
   return normalized.length <= maximumLength ? normalized : normalized.slice(0, maximumLength);
 }
 
+function scalarText(value: unknown, maximumLength = 256) {
+  if (typeof value === "number" || typeof value === "boolean") return text(String(value), maximumLength);
+  return text(value, maximumLength);
+}
+
+function jsonObject(value: unknown) {
+  if (typeof value !== "string" || !value.trim() || value.length > 20_000) return;
+  try {
+    return object(JSON.parse(value));
+  } catch {
+    return;
+  }
+}
+
 function createdAt(value: unknown) {
   const timestamp = nonnegativeInteger(value);
   if (!timestamp) return;
@@ -76,6 +94,7 @@ function usageLog(value: unknown, userId: number): AihubkitUsageLog | undefined 
   if (id === undefined || timestamp === undefined || type === undefined || quota === undefined) return;
   const amount = quota / quotaPerUnit;
   if (!Number.isFinite(amount)) return;
+  const errorDetails = type === 5 ? jsonObject(data.other) : undefined;
   return {
     id,
     createdAt: timestamp,
@@ -87,6 +106,10 @@ function usageLog(value: unknown, userId: number): AihubkitUsageLog | undefined 
     useTime,
     amount,
     requestId: text(data.request_id, 300),
+    detailMessage: type === 5 ? text(data.content, 4_000) : "",
+    errorCode: scalarText(errorDetails?.error_code, 200),
+    errorType: scalarText(errorDetails?.error_type, 200),
+    statusCode: nonnegativeInteger(errorDetails?.status_code, 999),
   };
 }
 
