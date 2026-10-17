@@ -17,7 +17,41 @@ import { createSkillContext } from "@/agent/skills";
 import { createAssetContext } from "@/agent/assets";
 import { readDocument } from "@/utils/documents";
 
+const blockedMediaNodeTools = new Set(["node:generateImage", "node:generateVideo"]);
+const draftOnlyMessage = "图片和视频节点已经准备好，请让用户检查配置后在对应节点中手动点击发送";
+
+function isBlockedMediaNodeTool(name: unknown): name is string {
+  return typeof name === "string" && blockedMediaNodeTools.has(name);
+}
+
+function filterMediaNodeTools(result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  const value = result as { nodeTools?: unknown };
+  if (!Array.isArray(value.nodeTools)) return result;
+  return {
+    ...value,
+    nodeTools: value.nodeTools.filter(item => !isBlockedMediaNodeTool(
+      item && typeof item === "object" && !Array.isArray(item) ? (item as { name?: unknown }).name : undefined,
+    )),
+  };
+}
+
+function createDraftOnlyCanvasContext(canvas?: CanvasContext): CanvasContext | undefined {
+  if (!canvas) return;
+  return {
+    get id() { return canvas.id; },
+    get tools() { return canvas.tools.filter(tool => !isBlockedMediaNodeTool(tool.name)); },
+    getNodeLabel: canvas.getNodeLabel ? nodeId => canvas.getNodeLabel!(nodeId) : undefined,
+    async call(request, signal) {
+      if (request.name === "nodeTools" && isBlockedMediaNodeTool(request.args.name)) throw new Error(draftOnlyMessage);
+      const result = await canvas.call(request, signal);
+      return request.name === "getNodeTools" ? filterMediaNodeTools(result) : result;
+    },
+  };
+}
+
 export function createAgentToolContext(cwd: string, config: Record<string, unknown> = {}, canvas?: CanvasContext, question?: QuestionContext, workspaceAvailable = true): ToolContext {
+  const agentCanvas = createDraftOnlyCanvasContext(canvas);
   const skillsDirectory = join(dirname(conf.path), "skills");
   const requireWorkspace = () => { if (!workspaceAvailable) throw new Error("此对话未提供工作目录，无法使用文件或媒体操作"); };
   const resolvePath = async (path: string, readOnly = false) => {
@@ -71,14 +105,14 @@ export function createAgentToolContext(cwd: string, config: Record<string, unkno
     }),
   };
   return {
-    cwd, config, files, resolvePath, writeFile: files.writeFile, canvas, question,
+    cwd, config, files, resolvePath, writeFile: files.writeFile, canvas: agentCanvas, question,
     skills: workspaceAvailable ? createSkillContext(cwd) : undefined, assets: workspaceAvailable ? createAssetContext(cwd) : undefined,
     browser: createBrowserContext(cwd),
     ffmpeg: signal => { requireWorkspace(); return createWorkspaceFfmpeg(cwd, signal); },
     media: workspaceAvailable ? {
       listModels: listMediaModels,
-      generateImage: (request, signal) => generateMedia(cwd, "image", request, signal),
-      generateVideo: (request, signal) => generateMedia(cwd, "video", request, signal),
+      generateImage: async () => { throw new Error(draftOnlyMessage); },
+      generateVideo: async () => { throw new Error(draftOnlyMessage); },
       generateAudio: (request, signal) => generateMedia(cwd, "audio", request, signal),
     } : undefined,
     sdk: {
@@ -109,7 +143,8 @@ export async function createAgentTools(cwd: string, canvas?: CanvasContext, ques
     if (item.loadError) throw new Error(`${item.displayName}：${item.loadError}`);
     const { plugin, metadata } = await loadTool(item.name);
     const config = validateToolConfig(plugin, item.config);
-    const definitions = await plugin.createTools({ ...context, config });
+    const definitions = (await plugin.createTools({ ...context, config }))
+      .filter(tool => item.name !== "mediaGeneration" || !["generateImage", "generateVideo"].includes(tool.name));
     for (const tool of definitions) {
       if (!tool.name || typeof tool.execute !== "function") throw new Error(t`${item.displayName} 返回了无效的工具`);
       if (names.has(tool.name)) throw new Error(t`工具名称重复：${tool.name}`);
