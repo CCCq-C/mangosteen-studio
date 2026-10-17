@@ -30,6 +30,7 @@ import * as mentionFiles from "@/agent/mentionFiles";
 import * as aihubkitAccount from "@/utils/aihubkit/account";
 import * as aihubkitCatalog from "@/utils/aihubkit/catalog";
 import * as aihubkitPricing from "@/utils/aihubkit/pricing";
+import * as aihubkitUsage from "@/utils/aihubkit/usage";
 
 export default {
   assets,
@@ -66,4 +67,5 @@ export default {
   aihubkitAccount,
   aihubkitCatalog,
   aihubkitPricing,
+  aihubkitUsage,
 };
