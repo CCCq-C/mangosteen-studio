@@ -172,8 +172,10 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
       }
       const key = `${type}\u0000${id}`;
       const model = models.get(key) ?? { id, label: id, type, groups: [] };
+      const pricingRatio = pricing?.models.get(id)?.salesRatios[group.info.id] ?? pricing?.groupRatios[group.info.id];
+      const relation = pricingRatio === undefined ? group.info : { ...group.info, ratio: pricingRatio };
       const price = pricing && getAihubkitPriceSummary(pricing, id, group.info.id);
-      model.groups.push({ ...group.info, ...(price ? { price } : {}) });
+      model.groups.push({ ...relation, ...(price ? { price } : {}) });
       models.set(key, model);
       const entries = candidates.get(key) ?? [];
       entries.push({ group: group.info.id, apiKey: group.apiKey });
@@ -184,7 +186,10 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
     userId,
     revision: (currentCatalog?.userId === userId ? currentCatalog.revision : 0) + 1,
     syncedAt: Date.now(),
-    groups: [...groupCatalogs.values()].map(group => ({ ...group.info })),
+    groups: [...groupCatalogs.values()].map(group => ({
+      ...group.info,
+      ratio: pricing?.groupRatios[group.info.id] ?? group.info.ratio,
+    })),
     models: [...models.values()].sort((left, right) => left.type.localeCompare(right.type) || left.label.localeCompare(right.label)),
     unknownModelCount: unknownModels.size,
     partial,

@@ -74,7 +74,7 @@ export async function listMediaModels(): Promise<MediaModel[]> {
       providerLabel: aiHubKit.label,
       groupId: group.id,
       groupLabel: group.label,
-      groupRatio: group.ratio,
+      groupRatio: relation.ratio,
       modelId: model.id,
       label: model.label,
       type: model.type,

@@ -85,7 +85,10 @@ function normalizeModel(value: unknown, groupRatios: Record<string, number>, fal
   if (!modelId || !modelGroups.length || modelPrice === undefined) return;
   const modelTags = tags(data.tags);
   const explicitRatios = ratios(data.model_sales_ratios);
-  const salesRatios = Object.fromEntries(modelGroups.map(group => [group, explicitRatios[group] ?? groupRatios[group] ?? 1]));
+  const salesRatios = Object.fromEntries(modelGroups.flatMap(group => {
+    const ratio = explicitRatios[group] ?? groupRatios[group];
+    return ratio === undefined ? [] : [[group, ratio]];
+  }));
   const billingMode = data.billing_mode === "tiered_expr" ? "tiered_expr" : "legacy";
   const expression = text(data.billing_expr, 20_000);
   if (billingMode === "tiered_expr" && !expression) return;
