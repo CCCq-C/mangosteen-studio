@@ -1,7 +1,18 @@
-import type { NodeAiModel } from "@toonflow/nodes-scaffold/nodeAi";
+import type { NodeAiModel, NodeMediaModel } from "@toonflow/nodes-scaffold/nodeAi";
 
-export function groupNodeModels<T extends Pick<NodeAiModel, "providerId" | "providerLabel">>(models: readonly T[]) {
-  return [...Map.groupBy(models, item => item.providerId)].map(([id, items]) => ({
-    id, label: items[0]!.providerLabel, models: items,
+type NodeModelChoice = Pick<NodeAiModel, "providerId" | "providerLabel" | "modelId">
+  & Partial<Pick<NodeMediaModel, "groupId" | "groupLabel" | "groupRatio">>;
+
+export function nodeModelValue(model: Pick<NodeModelChoice, "providerId" | "modelId" | "groupId">) {
+  return JSON.stringify(model.groupId ? [model.providerId, model.groupId, model.modelId] : [model.providerId, model.modelId]);
+}
+
+export function groupNodeModels<T extends NodeModelChoice>(models: readonly T[]) {
+  return [...Map.groupBy(models, item => item.groupId ? JSON.stringify([item.providerId, item.groupId]) : item.providerId)].map(([id, items]) => ({
+    id,
+    label: items[0]!.groupLabel
+      ? `${items[0]!.groupLabel}${items[0]!.groupRatio === undefined ? "" : ` · ${items[0]!.groupRatio}×`}`
+      : items[0]!.providerLabel,
+    models: items,
   })).sort((left, right) => Number(right.id === "tfRouter") - Number(left.id === "tfRouter"));
 }

@@ -233,12 +233,23 @@ async function runPendingImageGeneration(directory: string) {
     await waitForImageNodeTools(context, nodeId, signal);
     await context.call({ name: "nodeTools", args: { nodeId, name: "node:setPrompt", args: { prompt: request.prompt } } }, signal);
     let config = await context.call({ name: "nodeTools", args: { nodeId, name: "node:getConfig", args: {} } }, signal) as {
-      config?: { providerId?: string; modelId?: string };
-      models?: { providerId: string; modelId: string }[];
+      config?: { providerId?: string; groupId?: string; modelId?: string };
+      models?: { providerId: string; groupId?: string; modelId: string }[];
     };
     if (!config.config?.modelId && config.models?.[0]) {
       const model = config.models[0];
-      config = await context.call({ name: "nodeTools", args: { nodeId, name: "node:setConfig", args: { providerId: model.providerId, modelId: model.modelId } } }, signal) as typeof config;
+      config = await context.call({
+        name: "nodeTools",
+        args: {
+          nodeId,
+          name: "node:setConfig",
+          args: {
+            providerId: model.providerId,
+            modelId: model.modelId,
+            ...(model.groupId ? { groupId: model.groupId } : {}),
+          },
+        },
+      }, signal) as typeof config;
     }
     await context.call({ name: "selectNodes", args: { nodeIds: [nodeId] } }, signal);
     await context.call({ name: "fitCanvas", args: { nodeIds: [nodeId] } }, signal);

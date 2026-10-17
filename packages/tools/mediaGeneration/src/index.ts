@@ -22,7 +22,7 @@ const plugin: ToolPlugin = {
     const listTool: ToolDefinition = {
       name: "listMediaModels",
       label: "查询媒体模型",
-      description: "查询已允许生成的媒体模型，返回 providerId、modelId、类型、模式及支持的画幅、时长、分辨率或音色。生成前先查询，不能猜测模型 ID。",
+      description: "查询已允许生成的媒体模型，返回 providerId、可选 groupId、modelId、类型、模式及支持的画幅、时长、分辨率或音色。生成前先查询，不能猜测模型或分组 ID。",
       parameters: z.toJSONSchema(listMediaModelsSchema, { io: "input", target: "draft-07" }),
       async execute(_id, params, signal) {
         listMediaModelsSchema.parse(params);
@@ -34,7 +34,7 @@ const plugin: ToolPlugin = {
     return [listTool, ...generationTools.map<ToolDefinition>(operation => ({
       name: operation.name,
       label: operation.label,
-      description: `${operation.description}providerId 和 modelId 必须来自 listMediaModels。引用素材的 path 及 outputDirectory 均为工作区相对路径；省略输出目录使用默认媒体目录。等待生成完成后返回已保存的文件路径，不返回 Base64。`,
+      description: `${operation.description}providerId、modelId 和返回时的 groupId 必须来自同一条 listMediaModels 结果。引用素材的 path 及 outputDirectory 均为工作区相对路径；省略输出目录使用默认媒体目录。等待生成完成后返回已保存的文件路径，不返回 Base64。`,
       promptSnippet: "生成媒体前先查询 listMediaModels，复用实际模型和工作区参考素材。",
       parameters: z.toJSONSchema(operation.parameters, { io: "input", target: "draft-07" }),
       executionMode: "sequential",

@@ -5,7 +5,7 @@ import { aiHubKit, mediaProviders, type Provider } from "@toonflow/providers";
 import type { GeneratedMedia, MediaGenerationRequest, MediaModel, MediaReference } from "@toonflow/tools-scaffold/runtime";
 import conf from "@/utils/conf";
 import { getMediaProvider, listMediaProviders, loadMediaProviderDefinition, loadMediaProviderSource } from "@/utils/media/provider";
-import { getAihubkitCatalog, getAihubkitModelCandidates } from "@/utils/aihubkit/catalog";
+import { getAihubkitCatalog, getAihubkitModelCandidate } from "@/utils/aihubkit/catalog";
 import { lockWorkspaceFiles, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { beginGeneration, getProviderPrice } from "@/utils/media/billing";
 import { detectMimeType, readPriceReference } from "@/utils/media/priceReference";
@@ -50,9 +50,12 @@ export async function listMediaModels(): Promise<MediaModel[]> {
   let dynamic: MediaModel[] = [];
   try {
     const catalog = await getAihubkitCatalog();
-    dynamic = catalog.models.flatMap(model => model.type === "image" ? [{
+    dynamic = catalog.groups.flatMap(group => catalog.models.flatMap(model => model.type === "image" && model.groups.some(item => item.id === group.id) ? [{
       providerId: aiHubKit.id,
       providerLabel: aiHubKit.label,
+      groupId: group.id,
+      groupLabel: group.label,
+      groupRatio: group.ratio,
       modelId: model.id,
       label: model.label,
       type: "image" as const,
@@ -60,7 +63,7 @@ export async function listMediaModels(): Promise<MediaModel[]> {
       mode: ["text" as const],
       imageSizes: ["1024x1024"],
       imageRatios: ["1:1"],
-    }] : []);
+    }] : []));
   } catch (error) {
     if (!installed.length) throw error;
   }
@@ -156,9 +159,11 @@ async function prepareRequest<T>(directory: string | undefined, mediaType: "imag
 async function configuredProvider(request: MediaGenerationRequest, mediaType: "image" | "video" | "audio", signal?: AbortSignal, directory?: string) {
   if (request.providerId === aiHubKit.id) {
     if (mediaType !== "image") invalid("当前 AIHubKit 适配器尚未开放此媒体类型");
-    const candidates = await getAihubkitModelCandidates(request.modelId, "image");
-    if (!candidates.length) invalid("这个节点的模型已失效，请重新选择模型");
-    const config = Object.fromEntries(candidates.map((candidate, index) => [`apiKey${index + 1}`, candidate.apiKey]));
+    const groupId = request.groupId?.trim();
+    if (!groupId) invalid("这个节点的模型已失效，请重新选择模型");
+    const candidate = await getAihubkitModelCandidate(request.modelId, "image", groupId);
+    if (!candidate) invalid("这个节点的模型已失效，请重新选择模型");
+    const config = { apiKey1: candidate.apiKey };
     return loadMediaProviderDefinition(aiHubKit as Provider, config, signal, fetch, directory);
   }
   const info = await getMediaProvider(request.providerId);

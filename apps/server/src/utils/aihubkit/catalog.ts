@@ -265,6 +265,10 @@ export async function getAihubkitModelCandidates(modelId: string, type: Exclude<
   return (currentCatalog.candidates.get(key) ?? []).map(candidate => ({ ...candidate }));
 }
 
+export async function getAihubkitModelCandidate(modelId: string, type: Exclude<AihubkitModelType, "unknown">, groupId: string) {
+  return (await getAihubkitModelCandidates(modelId, type)).find(candidate => candidate.group === groupId);
+}
+
 export function clearAihubkitCatalog() {
   catalogEpoch++;
   clearTimeout(refreshTimer);

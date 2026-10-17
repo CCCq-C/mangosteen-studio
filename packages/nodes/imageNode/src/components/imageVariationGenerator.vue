@@ -2,7 +2,7 @@
   <footer class="variationFooter">
     <el-select v-model="settings.model" class="modelSelect" filterable :loading="modelsLoading" :disabled="busy" placeholder="选择图片模型" :aria-label="`${label}模型`" noDataText="请先在设置中添加图片模型" placement="top-start" @visible-change="visible => visible && refreshModels()">
       <el-option-group v-for="provider in modelGroups" :key="provider.id" :label="provider.label">
-        <el-option v-for="model in provider.models" :key="model.modelId" :label="model.label" :value="JSON.stringify([model.providerId, model.modelId])" />
+        <el-option v-for="model in provider.models" :key="nodeModelValue(model)" :label="model.label" :value="nodeModelValue(model)" />
       </el-option-group>
     </el-select>
     <el-popover trigger="click" placement="top" :width="220" :disabled="busy || !selectedModel" :showArrow="false">
@@ -22,7 +22,7 @@ import { useNode, useVueFlow } from "@vue-flow/core";
 import { ElButton, ElOption, ElOptionGroup, ElPopover, ElSelect } from "element-plus";
 import { IconSparkles } from "@tabler/icons-vue";
 import { useNodeAi, useNodeToolsContext, type NodeMediaModel, type NodeMediaValue } from "@toonflow/nodes-scaffold/runtime";
-import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { groupNodeModels, nodeModelValue } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useImageVariationNode } from "../useImageVariationNode";
 
@@ -46,12 +46,13 @@ const models = ref<NodeMediaModel[]>([]);
 const modelsLoading = ref(false);
 const busy = computed(() => props.disabled || generating.value);
 const modelGroups = computed(() => groupNodeModels(models.value));
-const selectedModel = computed(() => models.value.find(item => JSON.stringify([item.providerId, item.modelId]) === props.settings.model));
+const selectedModel = computed(() => models.value.find(item => nodeModelValue(item) === props.settings.model));
 const sizeOptions = computed(() => selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]);
 const ratioOptions = computed(() => selectedModel.value?.imageRatios?.length ? selectedModel.value.imageRatios : ["16:9"]);
 let generationController: AbortController | undefined;
 let disposed = false;
 let inheritModelConfig = true;
+let modelInvalidated = false;
 let ratioFromSource = !props.settings.ratio;
 
 function nearestRatio() {
@@ -68,6 +69,9 @@ watch(selectedModel, choice => {
 watch(() => props.aspectRatio, value => {
   if (value && ratioFromSource && selectedModel.value) { props.settings.ratio = nearestRatio(); ratioFromSource = false; }
 });
+watch(() => props.settings.model, value => {
+  if (value) modelInvalidated = false;
+}, { flush: "sync" });
 watch(() => [props.source?.url, props.source?.mimeType], () => generationController?.abort(), { flush: "sync" });
 onMounted(refreshModels);
 onScopeDispose(() => { disposed = true; generationController?.abort(); });
@@ -87,9 +91,13 @@ async function refreshModels() {
       inheritModelConfig = false;
     }
     models.value = result.filter(item => item.type === "image");
-    if (!props.settings.model) {
+    const configured = props.settings.model;
+    if (configured && !models.value.some(item => nodeModelValue(item) === configured)) {
+      props.settings.model = "";
+      modelInvalidated = true;
+    } else if (!configured && !modelInvalidated) {
       const choice = models.value[0];
-      props.settings.model = choice ? JSON.stringify([choice.providerId, choice.modelId]) : "";
+      props.settings.model = choice ? nodeModelValue(choice) : "";
     }
   } catch (error) { if (!disposed) showNodeError(error, "模型读取失败"); }
   finally { modelsLoading.value = false; }

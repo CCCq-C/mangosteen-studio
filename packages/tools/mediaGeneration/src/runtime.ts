@@ -11,6 +11,7 @@ const videoReference = z.strictObject({ path: relativePath, mimeType: z.string()
 const audioReference = z.strictObject({ path: relativePath, mimeType: z.string().regex(/^audio\/[a-z0-9.+-]+$/i) });
 const sharedFields = {
   providerId: z.string().regex(/^[a-z][a-zA-Z0-9]{0,95}$/),
+  groupId: z.string().trim().min(1).max(200).optional(),
   modelId: z.string().trim().min(1).max(256),
   prompt: z.string().trim().min(1).max(100000),
   outputDirectory: relativePath.optional(),

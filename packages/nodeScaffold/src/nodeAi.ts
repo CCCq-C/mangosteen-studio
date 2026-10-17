@@ -20,6 +20,7 @@ export type NodeMediaModel = Omit<MediaModel, "mode"> & {
 export type NodeImageRequest = {
   directory: string;
   providerId: string;
+  groupId?: string;
   modelId: string;
   prompt: string;
   outputDirectory: string;

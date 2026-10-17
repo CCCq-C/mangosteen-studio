@@ -75,6 +75,9 @@ export interface MediaModel {
   supportsPrice?: boolean;
   providerId: string;
   providerLabel: string;
+  groupId?: string;
+  groupLabel?: string;
+  groupRatio?: number;
   modelId: string;
   label: string;
   type: "image" | "video" | "audio";
@@ -93,6 +96,7 @@ export interface MediaReference {
 
 export interface MediaGenerationRequest {
   providerId: string;
+  groupId?: string;
   modelId: string;
   prompt: string;
   outputDirectory?: string;

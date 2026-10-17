@@ -70,9 +70,9 @@
             <el-option-group v-for="provider in modelGroups" :key="provider.id" :label="provider.label">
               <el-option
                 v-for="item in provider.models"
-                :key="item.modelId"
+                :key="nodeModelValue(item)"
                 :label="item.label"
-                :value="JSON.stringify([item.providerId, item.modelId])" />
+                :value="nodeModelValue(item)" />
             </el-option-group>
           </el-select>
           <generationSettings
@@ -114,7 +114,7 @@ import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElImageViewer } from "element-plus";
 import { IconCheck, IconPhotoAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconLayoutGrid, IconBrush, IconPencil, IconSun, IconCameraRotate, IconPanoramaHorizontal, IconChevronDown } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeImageRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
-import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
+import { groupNodeModels, nodeModelValue } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
 import { useNodeReferences } from "@toonflow/node-shared/useNodeReferences";
@@ -177,7 +177,7 @@ const generationState = useNodeGeneration(outputs, () => generationController?.a
 const { generating } = generationState;
 let generation: Promise<void> | undefined;
 let modelsRequest: Promise<void> | undefined;
-const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const selectedModel = computed(() => models.value.find(item => nodeModelValue(item) === data.value.model));
 watch(() => data.value.model, value => {
   if (value) data.value.modelInvalidated = false;
 }, { flush: "sync" });
@@ -211,6 +211,7 @@ const generationInput = computed<Omit<NodeImageRequest, "directory"> | undefined
   const references = refList.value.filter(item => !inpaint || item.dataType !== "IMAGE" || item.value?.url !== inpaint.source);
   const input = {
     providerId: choice.providerId,
+    groupId: choice.groupId,
     modelId: choice.modelId,
     prompt: generationPrompt.value,
     size: data.value.size,
@@ -294,7 +295,7 @@ function loadModels() {
   modelsRequest = ai.getMediaModels().then((items) => {
     if (disposed || generating.value || deleting.value) return;
     models.value = items.filter((item) => item.type === "image");
-    const currentModelExists = models.value.some(item => JSON.stringify([item.providerId, item.modelId]) === data.value.model);
+    const currentModelExists = models.value.some(item => nodeModelValue(item) === data.value.model);
     if (data.value.model && !currentModelExists) {
       data.value.model = "";
       data.value.modelInvalidated = true;
@@ -302,7 +303,7 @@ function loadModels() {
       data.value.modelInvalidated = false;
     } else if (!data.value.model && !data.value.modelInvalidated) {
       const first = models.value[0];
-      data.value.model = first ? JSON.stringify([first.providerId, first.modelId]) : "";
+      data.value.model = first ? nodeModelValue(first) : "";
     }
   }).finally(() => {
     modelsLoading.value = false;
@@ -417,6 +418,7 @@ function getConfig() {
     config: {
       providerId: selectedModel.value?.providerId ?? "",
       modelId: selectedModel.value?.modelId ?? "",
+      ...(selectedModel.value?.groupId ? { groupId: selectedModel.value.groupId } : {}),
       size: data.value.size,
       ratio: data.value.ratio,
     },
@@ -438,13 +440,14 @@ nodeTools.register({
 
 nodeTools.register({
   name: "setConfig",
-  description: "修改此图片生成节点的模型、分辨率或比例；先用 getConfig 查询可选能力，providerId 与 modelId 必须同时提供；不修改提示词、不启动生成",
+  description: "修改此图片生成节点的模型、分辨率或比例；先用 getConfig 查询可选能力，providerId、modelId 和返回时的 groupId 必须来自同一模型；不修改提示词、不启动生成",
   parameters: z.strictObject({
     providerId: z.string().min(1).optional(),
+    groupId: z.string().min(1).optional(),
     modelId: z.string().min(1).optional(),
     size: z.string().min(1).optional(),
     ratio: z.string().min(1).optional(),
-  }).refine((args) => (args.providerId === undefined) === (args.modelId === undefined), "providerId 与 modelId 必须同时提供"),
+  }).refine((args) => (args.providerId === undefined) === (args.modelId === undefined) && (args.groupId === undefined || args.modelId !== undefined), "providerId 与 modelId 必须同时提供，groupId 只能随模型提供"),
   async execute(args, { signal }) {
     signal?.throwIfAborted();
     if (generating.value || deleting.value) throw new Error("节点正在生成或删除，请稍后修改配置");
@@ -452,13 +455,13 @@ nodeTools.register({
     signal?.throwIfAborted();
     if (generating.value || deleting.value) throw new Error("节点正在生成或删除，请稍后修改配置");
     const choice = args.modelId === undefined ? selectedModel.value
-      : models.value.find((item) => item.providerId === args.providerId && item.modelId === args.modelId);
+      : models.value.find(item => item.providerId === args.providerId && item.groupId === args.groupId && item.modelId === args.modelId);
     if (!choice) throw new Error("请选择 getConfig 返回的有效图片模型");
     const sizes = choice.imageSizes?.length ? choice.imageSizes : ["2K"];
     const ratios = choice.imageRatios?.length ? choice.imageRatios : ["16:9"];
     if (args.size !== undefined && !sizes.includes(args.size)) throw new Error(`当前模型不支持分辨率 ${args.size}，可选：${sizes.join("、")}`);
     if (args.ratio !== undefined && !ratios.includes(args.ratio)) throw new Error(`当前模型不支持比例 ${args.ratio}，可选：${ratios.join("、")}`);
-    data.value.model = JSON.stringify([choice.providerId, choice.modelId]);
+    data.value.model = nodeModelValue(choice);
     if (args.size !== undefined) data.value.size = args.size;
     if (args.ratio !== undefined) data.value.ratio = args.ratio;
     return getConfig();
