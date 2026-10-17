@@ -16,6 +16,7 @@
 
     <el-alert v-if="notice" :title="notice" type="info" :closable="false" showIcon />
     <el-alert v-if="aihubkitCatalog?.partial" title="部分分组同步失败，当前展示其余已成功同步的模型。" type="warning" :closable="false" showIcon />
+    <el-alert v-if="aihubkitCatalog && !aihubkitCatalog.pricingAvailable" title="价格暂未同步，模型仍可正常使用；稍后点击“同步模型”即可重试。" type="warning" :closable="false" showIcon />
     <el-alert v-if="aihubkitCatalog?.unknownModelCount" :title="`${aihubkitCatalog.unknownModelCount} 个模型暂未识别类型，已从列表隐藏。`" type="warning" :closable="false" showIcon />
     <el-alert v-if="aihubkitCatalogError" :title="aihubkitCatalogError" type="error" :closable="false" showIcon />
 
@@ -40,8 +41,13 @@
           </template>
           <div class="modelGrid">
             <div v-for="model in group.models" :key="model.id" class="modelItem">
-              <modelIcon :model="model.id" :size="18" />
-              <span>{{ model.label }}</span>
+              <div class="modelName">
+                <modelIcon :model="model.id" :size="18" />
+                <span>{{ model.label }}</span>
+              </div>
+              <el-tooltip v-if="model.price" :content="model.price.tips" placement="top" :showAfter="300">
+                <el-tag size="small" type="success" effect="plain">{{ model.price.label }}</el-tag>
+              </el-tooltip>
             </div>
           </div>
         </el-collapse-item>
@@ -73,7 +79,8 @@ const props = withDefaults(defineProps<{
 const typeLabels: Record<AihubkitCatalogModelType, string> = { language: "文本", image: "图片", video: "视频" };
 const activeType = ref<AihubkitCatalogModelType>(props.types[0] ?? "language");
 const activeGroups = computed(() => (aihubkitCatalog.value?.groups ?? []).flatMap(group => {
-  const models = (aihubkitCatalog.value?.models ?? []).filter(model => model.type === activeType.value && model.groups.some(item => item.id === group.id));
+  const models = (aihubkitCatalog.value?.models ?? []).filter(model => model.type === activeType.value && model.groups.some(item => item.id === group.id))
+    .map(model => ({ ...model, price: model.groups.find(item => item.id === group.id)?.price }));
   return models.length ? [{ ...group, models }] : [];
 }));
 const totalModels = computed(() => props.types.reduce((count, type) => count + modelCount(type), 0));
@@ -188,16 +195,28 @@ watch(() => props.visible, (visible) => {
       .modelItem {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: 8px;
         min-width: 0;
         padding: 9px 10px;
         border-radius: var(--el-border-radius-base);
         background: var(--el-fill-color-light);
 
-        span {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+        .modelName {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+
+          span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+        }
+
+        .el-tag {
+          flex-shrink: 0;
         }
       }
     }

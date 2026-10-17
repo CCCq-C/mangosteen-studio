@@ -6,6 +6,7 @@ import type { GeneratedMedia, MediaGenerationRequest, MediaModel, MediaReference
 import conf from "@/utils/conf";
 import { getMediaProvider, listMediaProviders, loadMediaProviderDefinition, loadMediaProviderSource } from "@/utils/media/provider";
 import { getAihubkitCatalog, getAihubkitModelCandidate } from "@/utils/aihubkit/catalog";
+import { estimateAihubkitMediaPrice, scheduleAihubkitPriceHistoryRefresh } from "@/utils/aihubkit/pricing";
 import { lockWorkspaceFiles, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { beginGeneration, getProviderPrice } from "@/utils/media/billing";
 import { detectMimeType, readPriceReference } from "@/utils/media/priceReference";
@@ -66,7 +67,8 @@ export async function listMediaModels(): Promise<MediaModel[]> {
   }));
   const catalog = await getAihubkitCatalog();
   const dynamic = catalog.groups.flatMap(group => catalog.models.flatMap(model => {
-    if ((model.type !== "image" && model.type !== "video") || !model.groups.some(item => item.id === group.id)) return [];
+    const relation = model.groups.find(item => item.id === group.id);
+    if ((model.type !== "image" && model.type !== "video") || !relation) return [];
     const common = {
       providerId: aiHubKit.id,
       providerLabel: aiHubKit.label,
@@ -76,8 +78,10 @@ export async function listMediaModels(): Promise<MediaModel[]> {
       modelId: model.id,
       label: model.label,
       type: model.type,
-      supportsPrice: false,
-    } satisfies Pick<MediaModel, "providerId" | "providerLabel" | "groupId" | "groupLabel" | "groupRatio" | "modelId" | "label" | "type" | "supportsPrice">;
+      supportsPrice: Boolean(relation.price),
+      priceLabel: relation.price?.label,
+      priceTips: relation.price?.tips,
+    } satisfies Pick<MediaModel, "providerId" | "providerLabel" | "groupId" | "groupLabel" | "groupRatio" | "modelId" | "label" | "type" | "supportsPrice" | "priceLabel" | "priceTips">;
     return [model.type === "image" ? {
       ...common,
       mode: ["text"],
@@ -203,6 +207,14 @@ async function preparePriceRequest(directory: string | undefined, mediaType: "im
 
 export async function getMediaPrice(directory: string | undefined, mediaType: "image" | "video" | "audio", request: MediaGenerationRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
+  if (request.providerId === aiHubKit.id) {
+    if (mediaType === "audio") invalid("当前 AIHubKit 目录没有音频模型");
+    const groupId = request.groupId?.trim();
+    if (!groupId || !await getAihubkitModelCandidate(request.modelId, mediaType, groupId)) invalid("这个节点的模型已失效，请重新选择模型");
+    const prepared = await preparePriceRequest(directory, mediaType, request, signal);
+    signal?.throwIfAborted();
+    return estimateAihubkitMediaPrice(request.modelId, groupId, prepared);
+  }
   const provider = await configuredProvider(request, mediaType, signal, directory);
   if (!provider.getPrice) return null;
   const prepared = await preparePriceRequest(directory, mediaType, request, signal);
@@ -259,5 +271,8 @@ export async function generateMedia(
     // ACT: 只回滚本次创建的文件，保留目录中已有的节点资源。
     await Promise.all(written.map(path => unlink(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; })));
     throw err;
-  } finally { finish(); }
+  } finally {
+    finish();
+    if (request.providerId === aiHubKit.id) scheduleAihubkitPriceHistoryRefresh();
+  }
 }

@@ -3,7 +3,13 @@ import { readonly, ref, shallowRef } from "vue";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 
 export type AihubkitCatalogModelType = "image" | "video" | "language";
-export type AihubkitCatalogGroup = { id: string; label: string; ratio: number };
+export type AihubkitPriceSummary = {
+  label: string;
+  tips: string;
+  kind: "fixed" | "perSecond" | "tokenEstimate" | "dynamic";
+  pricingVersion: string;
+};
+export type AihubkitCatalogGroup = { id: string; label: string; ratio: number; price?: AihubkitPriceSummary };
 export type AihubkitCatalogModel = {
   id: string;
   label: string;
@@ -17,6 +23,9 @@ export type AihubkitCatalog = {
   models: AihubkitCatalogModel[];
   unknownModelCount: number;
   partial: boolean;
+  pricingAvailable: boolean;
+  pricingVersion?: string;
+  pricingSyncedAt?: number;
 };
 
 type ApiResponse<T> = { code: number; data: T | null; message: string };

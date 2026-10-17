@@ -21,6 +21,7 @@ const infoVisible = ref(false);
 const loading = ref(false);
 const error = ref("");
 const revision = ref(0);
+const refreshTimer = setInterval(() => revision.value++, 10 * 60_000);
 const priceLabel = computed(() => !props.supported ? "当前供应商尚未提供预估价格，无法提前计算费用。你仍可发起生成，实际费用以供应商结算为准。" : loading.value ? "正在查询预估价格" : error.value
   ? `价格查询失败：${error.value}。请检查供应商配置或稍后重试。`
   : price.value ? price.value.tips : "当前模型或参数组合暂无预估价格。你仍可发起生成，实际费用以供应商结算为准。");
@@ -32,6 +33,7 @@ function refreshPrice(event: Event) {
 window.addEventListener("toonflow:provider-config-changed", refreshPrice);
 window.addEventListener("toonflow:plugin-installed", refreshPrice);
 onScopeDispose(() => {
+  clearInterval(refreshTimer);
   window.removeEventListener("toonflow:provider-config-changed", refreshPrice);
   window.removeEventListener("toonflow:plugin-installed", refreshPrice);
 });

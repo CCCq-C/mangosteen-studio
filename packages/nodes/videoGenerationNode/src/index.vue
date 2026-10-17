@@ -68,7 +68,7 @@
               <el-option
                 v-for="item in provider.models"
                 :key="nodeModelValue(item)"
-                :label="item.label"
+                :label="nodeModelLabel(item)"
                 :value="nodeModelValue(item)" />
             </el-option-group>
           </el-select>
@@ -103,7 +103,7 @@ import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus";
 import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
-import { groupNodeModels, nodeModelValue } from "@toonflow/node-shared/groupNodeModels";
+import { groupNodeModels, nodeModelLabel, nodeModelValue } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
 import { useNodeReferences } from "@toonflow/node-shared/useNodeReferences";

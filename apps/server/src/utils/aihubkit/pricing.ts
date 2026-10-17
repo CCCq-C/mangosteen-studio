@@ -119,7 +119,7 @@ export async function estimateAihubkitMediaPrice(modelId: string, groupId: strin
     if (model.quotaType !== 1) return null;
     const price = model.modelPrice * groupRatio * dimensions.units;
     return {
-      price: `预计 ${amount(price)} 额度`,
+      price: `${dimensions.units}张预计总计 ${amount(price)}额度`,
       tips: `按 ${dimensions.units} 张计算；当前账号分组倍率 ${amount(groupRatio)}×；最终以实际扣费为准。`,
     };
   }
@@ -128,11 +128,12 @@ export async function estimateAihubkitMediaPrice(modelId: string, groupId: strin
   if (!evaluated) return null;
   const observed = evaluated.deferred ? getAihubkitPriceSample(snapshot.userId, modelId, groupId, dimensions) : undefined;
   const price = observed?.amount ?? evaluated.amount * groupRatio;
+  const average = dimensions.seconds > 0 ? `${amount(price / dimensions.seconds)}/秒 × ${amount(dimensions.seconds)}秒；` : "";
   return {
-    price: `预计 ${amount(price)} 额度`,
+    price: `${amount(dimensions.seconds)}秒预计总计 ${amount(price)}额度`,
     tips: observed
-      ? `参考当前用户最近一次同配置实际扣费；${evaluated.tier}；最终以本次实际扣费为准。`
-      : `${evaluated.deferred ? "上游按 Token 结算，当前使用参考公式" : `按 ${evaluated.tier} 档计算`}；当前账号分组倍率 ${amount(groupRatio)}×；最终以实际扣费为准。`,
+      ? `${evaluated.tier}，${average}参考当前用户最近一次同配置实际扣费；最终以本次实际扣费为准。`
+      : `${evaluated.tier}，${average}${evaluated.deferred ? "上游按 Token 结算，当前使用参考公式；" : ""}当前账号分组倍率 ${amount(groupRatio)}×；最终以实际扣费为准。`,
   };
 }
 

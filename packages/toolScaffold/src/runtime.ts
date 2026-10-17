@@ -73,6 +73,8 @@ export interface CanvasContext extends CanvasInfo {
 
 export interface MediaModel {
   supportsPrice?: boolean;
+  priceLabel?: string;
+  priceTips?: string;
   providerId: string;
   providerLabel: string;
   groupId?: string;

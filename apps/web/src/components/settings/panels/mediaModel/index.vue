@@ -1,6 +1,6 @@
 <template>
   <div class="modelSettings">
-    <modelCatalog :types="['image', 'video']" :visible="visible" notice="图片模型已经接入生成；视频模型本批先同步展示，调用将在后续批次接入。" />
+    <modelCatalog :types="['image', 'video']" :visible="visible" notice="图片、视频模型和分组价格都来自当前账号；上游变化后可自动或手动同步。" />
     <el-collapse v-model="advancedSections" class="advancedSettings">
       <el-collapse-item name="providers">
         <template #title>

@@ -70,6 +70,10 @@ async function readResult<T>(response: Response): Promise<T> {
 const modelCacheKey = Symbol.for("toonflow.nodeModels");
 const modelCacheHost = globalThis as typeof globalThis & { [modelCacheKey]?: Map<string, Promise<unknown[]>> };
 const modelCache = modelCacheHost[modelCacheKey] ??= new Map<string, Promise<unknown[]>>();
+const modelCacheTimeKey = Symbol.for("toonflow.nodeModelTimes");
+const modelCacheTimeHost = globalThis as typeof globalThis & { [modelCacheTimeKey]?: Map<string, number> };
+const modelCacheTimes = modelCacheTimeHost[modelCacheTimeKey] ??= new Map<string, number>();
+const modelCacheMaxAge = 10 * 60_000;
 
 type MediaPriceCache = {
   prices: Map<string, { expires: number; value: Promise<NodeMediaPrice | null> }>;
@@ -91,20 +95,30 @@ const mediaPriceCache = mediaPriceCacheHost[mediaPriceCacheKey] ??= (() => {
 })();
 
 export function invalidateNodeModels(type: "language" | "media") {
-  modelCache.delete(type === "language" ? "/api/ai/models" : "/api/ai/media/models");
+  const key = type === "language" ? "/api/ai/models" : "/api/ai/media/models";
+  modelCache.delete(key);
+  modelCacheTimes.delete(key);
   if (type === "media") mediaPriceCache.prices.clear();
 }
 
 async function readModels<T>(url: string, signal: AbortSignal): Promise<T[]> {
   signal.throwIfAborted();
+  if (Date.now() - (modelCacheTimes.get(url) ?? 0) >= modelCacheMaxAge) {
+    modelCache.delete(url);
+    modelCacheTimes.delete(url);
+  }
   let pending = modelCache.get(url);
   if (!pending) {
     const request = fetch(url, { cache: "no-store" }).then(readResult<unknown[]>).catch(error => {
-      if (modelCache.get(url) === request) modelCache.delete(url);
+      if (modelCache.get(url) === request) {
+        modelCache.delete(url);
+        modelCacheTimes.delete(url);
+      }
       throw error;
     });
     pending = request;
     modelCache.set(url, request);
+    modelCacheTimes.set(url, Date.now());
   }
   // 单个节点关闭只取消自己的等待，不能中断其他节点共用的请求。
   let cancel = () => {};
