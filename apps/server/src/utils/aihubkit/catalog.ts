@@ -253,7 +253,7 @@ export async function getAihubkitCatalog(force = false) {
     return await refreshAihubkitCatalog();
   } catch (error) {
     if (error instanceof AihubkitServiceError && error.status === 401) clearAihubkitCatalog();
-    if (currentCatalog) return publicCatalog(currentCatalog);
+    if (!force && currentCatalog) return publicCatalog(currentCatalog);
     throw error;
   }
 }
