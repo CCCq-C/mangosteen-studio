@@ -36,8 +36,9 @@ export function useNodeGeneration(outputs: Readonly<Ref<NodeOutputs>>, cancel: (
     } catch (failure) {
       status.value = "failed";
       const message = (failure as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      error.value = failure instanceof Error && failure.name === "AbortError" ? "生成已取消"
-        : message || (failure instanceof Error ? failure.message : "生成失败");
+      const details = failure as { name?: unknown; message?: unknown } | null;
+      error.value = details?.name === "AbortError" ? "生成已取消"
+        : message || (typeof details?.message === "string" ? details.message : "生成失败");
       throw failure;
     }
   }

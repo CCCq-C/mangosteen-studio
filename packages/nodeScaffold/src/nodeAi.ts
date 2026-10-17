@@ -263,12 +263,45 @@ export function useNodeAi() {
   }
 
   async function generateMedia<T extends "image" | "video" | "audio">(mediaType: T, input: NodeImageRequest | NodeVideoRequest | NodeAudioRequest, signal?: AbortSignal) {
-    return readResult<{ path: string; mimeType: string; mediaType: T }[]>(await fetch("/api/ai/media/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
-      body: JSON.stringify({ ...input, mediaType }),
-      signal: requestSignal(signal),
-    }));
+    const generationSignal = requestSignal(signal);
+    const requestId = crypto.randomUUID();
+    const request = { ...input, mediaType, requestId };
+    const transport = new AbortController();
+    let ready = false;
+    let cancellation: Promise<void> | undefined;
+    const cancel = () => {
+      if (!ready || cancellation) return;
+      cancellation = fetch("/api/ai/media/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
+        body: JSON.stringify({ directory: input.directory, mediaType, requestId, operation: "cancel" }),
+      }).then(readResult<void>).catch(error => console.error("媒体生成取消请求失败", error)).finally(() => {
+        transport.abort(generationSignal.reason);
+      });
+    };
+    generationSignal.addEventListener("abort", cancel, { once: true });
+    try {
+      generationSignal.throwIfAborted();
+      const response = await fetch("/api/ai/media/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
+        body: JSON.stringify({ ...request, operation: "generate" }),
+        signal: transport.signal,
+      });
+      ready = true;
+      if (generationSignal.aborted) cancel();
+      const result = await readResult<{ path: string; mimeType: string; mediaType: T }[]>(response);
+      generationSignal.throwIfAborted();
+      return result;
+    } catch (error) {
+      if (generationSignal.aborted) {
+        await cancellation;
+        throw generationSignal.reason;
+      }
+      throw error;
+    } finally {
+      generationSignal.removeEventListener("abort", cancel);
+    }
   }
 
   function generateImage(input: NodeImageRequest, signal?: AbortSignal) {

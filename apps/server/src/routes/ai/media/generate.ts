@@ -6,17 +6,32 @@ import { success, error, errorFromCause } from "@/lib/responseFormat";
 import u from "@/utils";
 import { translateMessage, validationOptions } from "@/lib/i18n";
 
+// ACT: Bun 不保证把长响应的 fetch.abort 传递给 Express；显式取消复用请求编号和单进程会话状态。
+const requests = new Map<string, { controller: AbortController; finished: Promise<void> }>();
+
 export default Router().post("/", validateFields({
+  requestId: z.uuid(), operation: z.enum(["generate", "cancel"]),
   directory: z.string().min(1).max(4096), mediaType: z.enum(["image", "video", "audio"]),
 }), async (req, res) => {
-  const { directory, mediaType, ...request } = req.body;
+  const { requestId, operation, directory, mediaType, ...request } = req.body;
+  const cwd = await u.workspace.resolveWorkspace(req, directory);
+  const requestKey = `${cwd}\0${requestId}`;
+  if (operation === "cancel") {
+    const active = requests.get(requestKey);
+    active?.controller.abort();
+    await active?.finished;
+    res.json(success({ cancellationRequested: Boolean(active) }));
+    return;
+  }
   const parsed = (mediaType === "image" ? imageGenerationSchema : mediaType === "video" ? videoGenerationSchema : audioGenerationSchema).safeParse(request, validationOptions());
   if (!parsed.success) {
     res.status(400).json(error("参数错误", parsed.error.issues.map(issue => ({ ...issue, message: translateMessage(issue.message) })), 400));
     return;
   }
-  const cwd = await u.workspace.resolveWorkspace(req, directory);
+  if (requests.has(requestKey)) throw Object.assign(new Error("媒体生成请求已在执行"), { status: 409 });
   const controller = new AbortController();
+  const finished = Promise.withResolvers<void>();
+  requests.set(requestKey, { controller, finished: finished.promise });
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   const close = () => { clearInterval(heartbeat); controller.abort(); };
   res.once("close", close);
@@ -32,10 +47,12 @@ export default Router().post("/", validateFields({
   } catch (err) {
     if (!res.destroyed) res.write(JSON.stringify(errorFromCause(err)));
   } finally {
+    if (requests.get(requestKey)?.controller === controller) requests.delete(requestKey);
     clearInterval(heartbeat);
     res.off("close", close);
     req.off("aborted", close);
     req.socket.off("close", close);
     res.end();
+    finished.resolve();
   }
 });
