@@ -1,41 +1,54 @@
 <template>
-  <div class="providerList">
-    <div class="itemList">
-      <el-card v-for="item in sortedProviders" :key="item.id" class="providerItem" shadow="never">
-        <div class="providerHeader">
-          <div v-if="item.icon || isTfRouterProvider(item)" class="providerMark" aria-hidden="true">
-            <img class="providerLogo" :class="{ monochrome: isTfRouterProvider(item) }" :src="item.icon || logoUrl" alt="" />
+  <div class="modelSettings">
+    <modelCatalog :types="['language']" :visible="visible" notice="这里展示当前账号实时返回的文本模型；文本生成调用将在后续批次接入。" />
+    <el-collapse v-model="advancedSections" class="advancedSettings">
+      <el-collapse-item name="providers">
+        <template #title>
+          <div class="advancedTitle">
+            <strong>高级供应商</strong>
+            <el-text size="small" type="info">保留原有第三方与自定义配置</el-text>
           </div>
-          <div class="providerInfo">
-            <div class="providerHeading">
-              <el-text class="providerName" tag="strong">{{ item.label }}</el-text>
-              <el-tag v-if="isTfRouterProvider(item)" size="small">官方</el-tag>
-            </div>
-            <el-text class="providerId" size="small" type="info" :title="item.id">{{ item.id }}</el-text>
+        </template>
+        <div class="providerList">
+          <div class="itemList">
+            <el-card v-for="item in sortedProviders" :key="item.id" class="providerItem" shadow="never">
+              <div class="providerHeader">
+                <div v-if="item.icon || isTfRouterProvider(item)" class="providerMark" aria-hidden="true">
+                  <img class="providerLogo" :class="{ monochrome: isTfRouterProvider(item) }" :src="item.icon || logoUrl" alt="" />
+                </div>
+                <div class="providerInfo">
+                  <div class="providerHeading">
+                    <el-text class="providerName" tag="strong">{{ item.label }}</el-text>
+                    <el-tag v-if="isTfRouterProvider(item)" size="small">官方</el-tag>
+                  </div>
+                  <el-text class="providerId" size="small" type="info" :title="item.id">{{ item.id }}</el-text>
+                </div>
+              </div>
+              <tfAccount v-if="isTfRouterProvider(item)" :apiKey="typeof item.apiKey === 'string' ? item.apiKey : ''" :visible="visible" :saveApiKey="(key) => saveProviderApiKey(item.id, key)" />
+              <div class="providerFooter">
+                <div class="providerMeta">
+                  <el-tag v-if="getProviderVersion(item)" size="small" type="info" effect="plain">v{{ getProviderVersion(item) }}</el-tag>
+                  <el-text size="small" type="info">{{ item.models.length }} 个模型</el-text>
+                </div>
+                <el-space class="itemActions" wrap>
+                  <el-button v-if="isTfRouterProvider(item) && item.apiKey?.trim() && !item.models.length" text :icon="IconRefresh" :loading="fetchingId === item.id" :disabled="!!deletingId || !!fetchingId" @click="fetchProviderModels(item)">获取模型</el-button>
+                  <el-button text :icon="IconEdit" :disabled="!!deletingId" @click="openCustomProvider(item)">编辑</el-button>
+                  <el-popconfirm title="确定删除此供应商及其模型？" confirmButtonText="删除" cancelButtonText="取消" @confirm="deleteProvider(item.id)">
+                    <template #reference><el-button text type="danger" :icon="IconTrash" :loading="deletingId === item.id" :disabled="!!deletingId">删除</el-button></template>
+                  </el-popconfirm>
+                </el-space>
+              </div>
+            </el-card>
           </div>
+          <div class="providerActions">
+            <el-button class="addButton" :icon="IconPlus" @click="openProvider">添加供应商</el-button>
+            <el-button class="addButton" :icon="IconSettings" @click="openCustomProvider()">添加自定义供应商</el-button>
+          </div>
+          <component :is="addProviderDialog" v-model="providerDialogVisible" />
+          <component :is="addCustomProviderDialog" v-model="customProviderDialogVisible" :provider="editingProvider" />
         </div>
-        <tfAccount v-if="isTfRouterProvider(item)" :apiKey="typeof item.apiKey === 'string' ? item.apiKey : ''" :visible="visible" :saveApiKey="(key) => saveProviderApiKey(item.id, key)" />
-        <div class="providerFooter">
-          <div class="providerMeta">
-            <el-tag v-if="getProviderVersion(item)" size="small" type="info" effect="plain">v{{ getProviderVersion(item) }}</el-tag>
-            <el-text size="small" type="info">{{ item.models.length }} 个模型</el-text>
-          </div>
-          <el-space class="itemActions" wrap>
-            <el-button v-if="isTfRouterProvider(item) && item.apiKey?.trim() && !item.models.length" text :icon="IconRefresh" :loading="fetchingId === item.id" :disabled="!!deletingId || !!fetchingId" @click="fetchProviderModels(item)">获取模型</el-button>
-            <el-button text :icon="IconEdit" :disabled="!!deletingId" @click="openCustomProvider(item)">编辑</el-button>
-            <el-popconfirm title="确定删除此供应商及其模型？" confirmButtonText="删除" cancelButtonText="取消" @confirm="deleteProvider(item.id)">
-              <template #reference><el-button text type="danger" :icon="IconTrash" :loading="deletingId === item.id" :disabled="!!deletingId">删除</el-button></template>
-            </el-popconfirm>
-          </el-space>
-        </div>
-      </el-card>
-    </div>
-    <div class="providerActions">
-      <el-button class="addButton" :icon="IconPlus" @click="openProvider">添加供应商</el-button>
-      <el-button class="addButton" :icon="IconSettings" @click="openCustomProvider()">添加自定义供应商</el-button>
-    </div>
-    <component :is="addProviderDialog" v-model="providerDialogVisible" />
-    <component :is="addCustomProviderDialog" v-model="customProviderDialogVisible" :provider="editingProvider" />
+      </el-collapse-item>
+    </el-collapse>
   </div>
 </template>
 
@@ -48,6 +61,7 @@ import { IconPlus, IconSettings, IconEdit, IconTrash, IconRefresh } from "@table
 import { languageProviders } from "@toonflow/providers";
 import logoUrl from "@toonflow/assets/mangosteenAvatar.png";
 import tfAccount from "../../tfAccount.vue";
+import modelCatalog from "../../modelCatalog.vue";
 import { isTfRouterProvider } from "@/lib/tf";
 
 const { visible = true } = defineProps<{ visible?: boolean }>();
@@ -58,6 +72,7 @@ const customProviderDialogVisible = ref(false);
 const editingProvider = ref<CustomProvider>();
 const deletingId = ref("");
 const fetchingId = ref("");
+const advancedSections = ref<string[]>([]);
 const sortedProviders = computed(() => [...customProviders.value].sort((a, b) => Number(isTfRouterProvider(b)) - Number(isTfRouterProvider(a))));
 
 function getProviderVersion(provider: CustomProvider) {
@@ -131,3 +146,21 @@ async function fetchProviderModels(provider: CustomProvider) {
 </script>
 
 <style lang="scss" scoped src="../../providerList.scss"></style>
+<style scoped lang="scss">
+.modelSettings {
+  display: grid;
+  gap: 20px;
+
+  .advancedSettings {
+    .advancedTitle {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .providerList {
+      padding-top: 12px;
+    }
+  }
+}
+</style>
