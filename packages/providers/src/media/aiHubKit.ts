@@ -65,7 +65,20 @@ function imageAssets(value: unknown): MediaAsset[] {
   return assets;
 }
 
-function wait(signal: AbortSignal) {
+function videoAsset(value: unknown): MediaAsset | undefined {
+  const data = object(value);
+  const nested = object(data.data);
+  const result = object(data.result);
+  const nestedResult = object(nested.result);
+  const output = object(data.output);
+  const nestedOutput = object(nested.output);
+  const url = [data.url, data.video_url, nested.url, nested.video_url, result.url, result.video_url,
+    nestedResult.url, nestedResult.video_url, output.url, output.video_url, nestedOutput.url, nestedOutput.video_url]
+    .map(text).find(value => /^https:\/\//i.test(value));
+  return url ? { mediaType: "video", type: "url", url } : undefined;
+}
+
+function wait(signal: AbortSignal, milliseconds = 3000) {
   signal.throwIfAborted();
   return new Promise<void>((resolve, reject) => {
     const abort = () => {
@@ -75,7 +88,7 @@ function wait(signal: AbortSignal) {
     const timer = setTimeout(() => {
       signal.removeEventListener("abort", abort);
       resolve();
-    }, 3000);
+    }, milliseconds);
     signal.addEventListener("abort", abort, { once: true });
   });
 }
@@ -147,6 +160,35 @@ async function createImage(context: ProviderContext, apiKey: string, body: Recor
   }
 }
 
+async function createVideo(context: ProviderContext, apiKey: string, body: Record<string, unknown>) {
+  const created = await fetchJson(context, apiKey, "/v1/videos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!created.response.ok) throw requestError(context, created.payload, created.response.status);
+  if (["failed", "failure", "error", "cancelled", "canceled", "rejected"].includes(taskState(created.payload))) {
+    throw requestError(context, created.payload, created.response.status);
+  }
+  const direct = videoAsset(created.payload);
+  if (direct) return [direct];
+  const id = taskId(created.payload);
+  if (!id) throw new Error("AIHubKit 已接收生视频请求，但未返回任务编号");
+
+  while (true) {
+    await wait(context.signal!, 5000);
+    const result = await fetchJson(context, apiKey, `/v1/videos/${encodeURIComponent(id)}`);
+    if (!result.response.ok) throw requestError(context, result.payload, result.response.status);
+    const asset = videoAsset(result.payload);
+    if (asset) return [asset];
+    const state = taskState(result.payload);
+    if (["failed", "failure", "error", "cancelled", "canceled", "rejected"].includes(state)) {
+      throw new Error(context.tool.errorMessage(result.payload) || "AIHubKit 视频任务执行失败");
+    }
+    if (["completed", "succeeded", "success"].includes(state)) throw new Error("AIHubKit 视频任务已完成，但没有返回视频");
+  }
+}
+
 export default {
   id: "aiHubKit" as const,
   label: "AIHubKit",
@@ -177,5 +219,34 @@ export default {
       }
     }
     throw lastError ?? new Error("当前模型暂时没有可用图片线路");
+  },
+  async generateVideo(this: ProviderContext, request: VideoRequest): Promise<MediaAsset[]> {
+    if (!request.prompt.trim()) throw new Error("请输入视频生成提示词");
+    if (request.images?.length || request.videos?.length || request.audios?.length || request.firstFrame || request.lastFrame) {
+      throw new Error("AIHubKit 参考素材需要先上传为临时公网地址，当前版本先支持文生视频");
+    }
+    if (!Number.isInteger(request.duration) || request.duration! <= 0) throw new Error("请选择视频时长");
+    const resolution = request.resolution?.trim();
+    if (!resolution) throw new Error("请选择视频分辨率");
+    const keys = apiKeys(this.config);
+    if (!keys.length) throw new Error("没有找到当前模型的 AIHubKit 授权，请刷新模型后重试");
+    const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(this.signal ? [this.signal] : [])]);
+    const context = { ...this, signal };
+    const body = {
+      model: request.model,
+      prompt: request.prompt.trim(),
+      duration: request.duration,
+      resolution,
+      ...(request.ratio?.trim() ? { ratio: request.ratio.trim() } : {}),
+    };
+    let lastError: unknown;
+    for (const key of keys) {
+      try { return await createVideo(context, key, body); }
+      catch (error) {
+        lastError = error;
+        if (!unavailableChannel(error)) throw error;
+      }
+    }
+    throw lastError ?? new Error("当前模型暂时没有可用视频线路");
   },
 } satisfies ProviderDefinition<typeof rules>;

@@ -1,7 +1,7 @@
 import { t, translateMessage } from "@/lib/i18n";
 import { mkdir, readFile, realpath, stat, unlink } from "@toonflow/file";
 import { join, relative } from "node:path";
-import { aiHubKit, mediaProviders, type Provider } from "@toonflow/providers";
+import { aiHubKit, type Provider } from "@toonflow/providers";
 import type { GeneratedMedia, MediaGenerationRequest, MediaModel, MediaReference } from "@toonflow/tools-scaffold/runtime";
 import conf from "@/utils/conf";
 import { getMediaProvider, listMediaProviders, loadMediaProviderDefinition, loadMediaProviderSource } from "@/utils/media/provider";
@@ -27,30 +27,47 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function imageOptions(value: unknown, pattern: RegExp) {
-  return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length <= 64 && item === item.trim() && pattern.test(item)))] : undefined;
+function seconds(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_value, index) => from + index);
+}
+
+function aihubkitVideoCapabilities(modelId: string): Pick<MediaModel, "mode" | "durationResolutionMap" | "audio"> {
+  const id = modelId.toLowerCase();
+  if (/(?:seedance[-_. ]?2[._-]?5|^sd-2\.5)/i.test(id)) {
+    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(4, 30), resolution: ["480p", "720p", "1080p"] }], audio: "optional" };
+  }
+  if (/(?:seedance[-_. ]?2[._-]?0|^sd-(?:2\.0|fast|mini))/i.test(id)) {
+    const limited = /(?:fast|mini)/i.test(id);
+    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(4, 15), resolution: limited ? ["480p", "720p"] : ["480p", "720p", "1080p", "4k"] }], audio: "optional" };
+  }
+  if (/kling/i.test(id)) {
+    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(3, 15), resolution: ["720p", "1080p", "4k"] }] };
+  }
+  if (/minimax[-_. ]?h3/i.test(id)) {
+    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(4, 15), resolution: ["768p", "2k"] }] };
+  }
+  if (/wan[-_. ]?3/i.test(id)) {
+    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(2, 30), resolution: ["480p", "720p", "1080p"] }] };
+  }
+  return { mode: ["text"], durationResolutionMap: [{ duration: [5], resolution: ["720p"] }] };
 }
 
 export async function listMediaModels(): Promise<MediaModel[]> {
   const installedProviders = await listMediaProviders();
   const installed = installedProviders.flatMap(provider => provider.models.flatMap(model => {
-    if (model.type !== "image" && model.type !== "video" && model.type !== "audio") return [];
-    const builtIn = (mediaProviders as readonly Provider[]).find(item => item.id === provider.id)?.models.find(item => item.id === model.id);
+    // ACT: 图片和视频由当前登录账户的 AIHubKit 目录唯一提供；旧供应商只保留音频兼容。
+    if (model.type !== "audio") return [];
     return [{
       providerId: provider.id, providerLabel: provider.label, modelId: model.id, label: model.label, type: model.type,
       supportsPrice: "supportsPrice" in provider && provider.supportsPrice === true,
       mode: model.mode, durationResolutionMap: model.durationResolutionMap, audio: model.audio,
-      ...(model.type === "audio" ? { voices: model.voices } : {}),
-      ...(model.type === "image" ? {
-        imageSizes: imageOptions(Array.isArray(model.imageSizes) ? model.imageSizes : builtIn?.imageSizes, /^[^\u0000-\u001f\u007f]+$/),
-        imageRatios: imageOptions(Array.isArray(model.imageRatios) ? model.imageRatios : builtIn?.imageRatios, /^[1-9]\d{0,3}:[1-9]\d{0,3}$/),
-      } : {}),
+      voices: model.voices,
     } as MediaModel];
   }));
-  let dynamic: MediaModel[] = [];
-  try {
-    const catalog = await getAihubkitCatalog();
-    dynamic = catalog.groups.flatMap(group => catalog.models.flatMap(model => model.type === "image" && model.groups.some(item => item.id === group.id) ? [{
+  const catalog = await getAihubkitCatalog();
+  const dynamic = catalog.groups.flatMap(group => catalog.models.flatMap(model => {
+    if ((model.type !== "image" && model.type !== "video") || !model.groups.some(item => item.id === group.id)) return [];
+    const common = {
       providerId: aiHubKit.id,
       providerLabel: aiHubKit.label,
       groupId: group.id,
@@ -58,15 +75,16 @@ export async function listMediaModels(): Promise<MediaModel[]> {
       groupRatio: group.ratio,
       modelId: model.id,
       label: model.label,
-      type: "image" as const,
+      type: model.type,
       supportsPrice: false,
-      mode: ["text" as const],
+    } satisfies Pick<MediaModel, "providerId" | "providerLabel" | "groupId" | "groupLabel" | "groupRatio" | "modelId" | "label" | "type" | "supportsPrice">;
+    return [model.type === "image" ? {
+      ...common,
+      mode: ["text"],
       imageSizes: ["1024x1024"],
       imageRatios: ["1:1"],
-    }] : []));
-  } catch (error) {
-    if (!installed.length) throw error;
-  }
+    } : { ...common, ...aihubkitVideoCapabilities(model.id) }];
+  }));
   return [...dynamic, ...installed.filter(model => model.providerId !== aiHubKit.id)];
 }
 
@@ -158,10 +176,10 @@ async function prepareRequest<T>(directory: string | undefined, mediaType: "imag
 
 async function configuredProvider(request: MediaGenerationRequest, mediaType: "image" | "video" | "audio", signal?: AbortSignal, directory?: string) {
   if (request.providerId === aiHubKit.id) {
-    if (mediaType !== "image") invalid("当前 AIHubKit 适配器尚未开放此媒体类型");
+    if (mediaType === "audio") invalid("当前 AIHubKit 目录没有音频模型");
     const groupId = request.groupId?.trim();
     if (!groupId) invalid("这个节点的模型已失效，请重新选择模型");
-    const candidate = await getAihubkitModelCandidate(request.modelId, "image", groupId);
+    const candidate = await getAihubkitModelCandidate(request.modelId, mediaType, groupId);
     if (!candidate) invalid("这个节点的模型已失效，请重新选择模型");
     const config = { apiKey1: candidate.apiKey };
     return loadMediaProviderDefinition(aiHubKit as Provider, config, signal, fetch, directory);
