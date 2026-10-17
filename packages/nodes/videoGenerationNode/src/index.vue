@@ -184,10 +184,14 @@ function getDurations(choice: NodeMediaModel) {
   return [...new Set((choice.durationResolutionMap ?? []).flatMap((item) => item.duration))].sort((a, b) => a - b);
 }
 
+function resolutionHeight(value: string) {
+  const match = /^(\d+(?:\.\d+)?)\s*(p|k)$/i.exec(value);
+  return match ? Number(match[1]) * (match[2]!.toLowerCase() === "k" ? 1000 : 1) : Infinity;
+}
+
 function getResolutions(choice: NodeMediaModel, duration?: number) {
-  // ACT: 当前视频分辨率使用 p 单位；出现其他单位时再统一换算。
   return [...new Set((choice.durationResolutionMap ?? []).filter((item) => item.duration.includes(duration!)).flatMap((item) => item.resolution))]
-    .sort((left, right) => (Number.parseFloat(left) || Infinity) - (Number.parseFloat(right) || Infinity));
+    .sort((left, right) => resolutionHeight(left) - resolutionHeight(right) || left.localeCompare(right));
 }
 // ACT: 引用改变时只替换不适用的模式；普通媒体优先作为参考，避免自动变成首尾帧。
 watch([selectedModel, matchingModes, () => data.value.mode], ([choice, matches]) => {
