@@ -1,10 +1,11 @@
 import { t, translateMessage } from "@/lib/i18n";
 import { mkdir, readFile, realpath, stat, unlink } from "@toonflow/file";
 import { join, relative } from "node:path";
-import { mediaProviders, type Provider } from "@toonflow/providers";
+import { aiHubKit, mediaProviders, type Provider } from "@toonflow/providers";
 import type { GeneratedMedia, MediaGenerationRequest, MediaModel, MediaReference } from "@toonflow/tools-scaffold/runtime";
 import conf from "@/utils/conf";
-import { getMediaProvider, listMediaProviders, loadMediaProviderSource } from "@/utils/media/provider";
+import { getMediaProvider, listMediaProviders, loadMediaProviderDefinition, loadMediaProviderSource } from "@/utils/media/provider";
+import { getAihubkitCatalog, getAihubkitModelCandidates } from "@/utils/aihubkit/catalog";
 import { lockWorkspaceFiles, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { beginGeneration, getProviderPrice } from "@/utils/media/billing";
 import { detectMimeType, readPriceReference } from "@/utils/media/priceReference";
@@ -32,7 +33,7 @@ function imageOptions(value: unknown, pattern: RegExp) {
 
 export async function listMediaModels(): Promise<MediaModel[]> {
   const installedProviders = await listMediaProviders();
-  return installedProviders.flatMap(provider => provider.models.flatMap(model => {
+  const installed = installedProviders.flatMap(provider => provider.models.flatMap(model => {
     if (model.type !== "image" && model.type !== "video" && model.type !== "audio") return [];
     const builtIn = (mediaProviders as readonly Provider[]).find(item => item.id === provider.id)?.models.find(item => item.id === model.id);
     return [{
@@ -46,6 +47,24 @@ export async function listMediaModels(): Promise<MediaModel[]> {
       } : {}),
     } as MediaModel];
   }));
+  let dynamic: MediaModel[] = [];
+  try {
+    const catalog = await getAihubkitCatalog();
+    dynamic = catalog.models.flatMap(model => model.type === "image" ? [{
+      providerId: aiHubKit.id,
+      providerLabel: aiHubKit.label,
+      modelId: model.id,
+      label: model.label,
+      type: "image" as const,
+      supportsPrice: false,
+      mode: ["text" as const],
+      imageSizes: ["1024x1024"],
+      imageRatios: ["1:1"],
+    }] : []);
+  } catch (error) {
+    if (!installed.length) throw error;
+  }
+  return [...dynamic, ...installed.filter(model => model.providerId !== aiHubKit.id)];
 }
 
 export async function readReference(cwd: string, reference: MediaReference, mediaType: string, signal?: AbortSignal): Promise<Extract<MediaInput, { type: "base64" }>> {
@@ -135,6 +154,13 @@ async function prepareRequest<T>(directory: string | undefined, mediaType: "imag
 }
 
 async function configuredProvider(request: MediaGenerationRequest, mediaType: "image" | "video" | "audio", signal?: AbortSignal, directory?: string) {
+  if (request.providerId === aiHubKit.id) {
+    if (mediaType !== "image") invalid("当前 AIHubKit 适配器尚未开放此媒体类型");
+    const candidates = await getAihubkitModelCandidates(request.modelId, "image");
+    if (!candidates.length) invalid("这个节点的模型已失效，请重新选择模型");
+    const config = Object.fromEntries(candidates.map((candidate, index) => [`apiKey${index + 1}`, candidate.apiKey]));
+    return loadMediaProviderDefinition(aiHubKit as Provider, config, signal, fetch, directory);
+  }
   const info = await getMediaProvider(request.providerId);
   if (!info.models.some(model => model.id === request.modelId && model.type === mediaType)) invalid("所选媒体模型不存在或类型不匹配，请重新选择");
   const configurations = record(conf.get("settings", {}).mediaProviderConfigs);

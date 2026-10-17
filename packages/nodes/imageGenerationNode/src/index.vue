@@ -88,7 +88,7 @@
             <el-button
               class="sendButton"
               :icon="generating ? IconPlayerStop : IconArrowUp"
-              :disabled="deleting || uploading || (!generating && (editor?.busy || !generationPrompt || !selectedModel))"
+              :disabled="deleting || uploading || (!generating && (editor?.busy || !generationPrompt || (!selectedModel && !data.modelInvalidated)))"
               :title="generating ? '停止生成' : '生成图片'"
               :aria-label="generating ? '停止生成' : '生成图片'"
               @click="generating ? generationController?.abort() : startGeneration().catch((error) => showNodeError(error, '图片生成失败'))" />
@@ -143,7 +143,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "图片生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; inpaint?: ImageInpaint });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; modelInvalidated?: boolean; size: string; ratio: string; inpaint?: ImageInpaint });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.inpaintPrompt ??= "";
@@ -178,6 +178,9 @@ const { generating } = generationState;
 let generation: Promise<void> | undefined;
 let modelsRequest: Promise<void> | undefined;
 const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+watch(() => data.value.model, value => {
+  if (value) data.value.modelInvalidated = false;
+}, { flush: "sync" });
 const sizeOptions = computed(() => (selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]));
 const ratioOptions = computed(() => (selectedModel.value?.imageRatios?.length ? selectedModel.value.imageRatios : ["16:9"]));
 watch(
@@ -291,8 +294,13 @@ function loadModels() {
   modelsRequest = ai.getMediaModels().then((items) => {
     if (disposed || generating.value || deleting.value) return;
     models.value = items.filter((item) => item.type === "image");
-    // ACT: 只给空配置选默认模型，保留暂时不可用的旧选择及其参数。
-    if (!data.value.model) {
+    const currentModelExists = models.value.some(item => JSON.stringify([item.providerId, item.modelId]) === data.value.model);
+    if (data.value.model && !currentModelExists) {
+      data.value.model = "";
+      data.value.modelInvalidated = true;
+    } else if (data.value.model) {
+      data.value.modelInvalidated = false;
+    } else if (!data.value.model && !data.value.modelInvalidated) {
       const first = models.value[0];
       data.value.model = first ? JSON.stringify([first.providerId, first.modelId]) : "";
     }
@@ -329,7 +337,7 @@ async function startGeneration() {
   if (!generationPrompt.value) throw new Error("请输入生成提示词");
   const references = refList.value.filter(item => !data.value.inpaint || item.dataType !== "IMAGE" || item.value?.url !== data.value.inpaint.source);
   if (references.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
-  if (!input) throw new Error("请先选择图片模型");
+  if (!input) throw new Error(data.value.modelInvalidated ? "这个节点的模型已失效，请重新选择模型" : "请先选择图片模型");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   const inpaintData = data.value.inpaint;

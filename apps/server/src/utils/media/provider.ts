@@ -398,6 +398,20 @@ export async function loadMediaProviderSource(source: string, config: Record<str
   await module.evaluate({ timeout: 1000 });
   signal?.throwIfAborted();
   const definition = (module.namespace as { default: Provider }).default;
+  return loadMediaProviderDefinition(definition, config, signal, fetchRequest, cwd, createHash("sha256").update(source).digest("hex"));
+}
+
+export async function loadMediaProviderDefinition(
+  sourceDefinition: Provider,
+  config: Record<string, unknown> = {},
+  signal?: AbortSignal,
+  fetchRequest = fetch,
+  cwd?: string,
+  sourceRevision = "builtIn",
+) {
+  signal?.throwIfAborted();
+  const definition = { ...sourceDefinition };
+  const id = definition.id;
   // ACT: 已安装 TF-Router 仅补齐缺省查询能力，保留用户适配代码与模型列表。
   if (id === tfRouter.id) {
     definition.getPrice ??= tfRouter.getPrice;
@@ -409,7 +423,7 @@ export async function loadMediaProviderSource(source: string, config: Record<str
     ...definition,
     // 查询上下文使用原始注入 fetch，避免继承某次生成请求的取消信号。
     queryFetch: fetchRequest,
-    sourceRevision: createHash("sha256").update(source).digest("hex"),
+    sourceRevision,
     config: providerConfig,
     signal,
     tool: {

@@ -6,6 +6,7 @@ import tfRouterMedia from "./src/media/tfRouter";
 import apiMart from "./src/media/apiMart";
 import metaso from "./src/media/metaso";
 import compshare from "./src/media/compshare";
+import aiHubKit from "./src/media/aiHubKit";
 
 export type Provider = ProviderDefinition;
 export type ProviderPrice = NonNullable<Awaited<ReturnType<NonNullable<Provider["getPrice"]>>>>;
@@ -18,3 +19,4 @@ export type { FfmpegFactory, FfmpegCommand } from "@toonflow/ffmpeg/types";
 
 export const languageProviders = [tfRouterLanguage, deepSeek] as const;
 export const mediaProviders = [tfRouterMedia, apiMart, metaso, compshare] as const;
+export { aiHubKit };

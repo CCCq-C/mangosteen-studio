@@ -9,10 +9,16 @@ export type Project = {
   lastOpenedAt: number;
 };
 
+export type PendingImageGeneration = {
+  directory: string;
+  prompt: string;
+};
+
 export const useWorkspaceStore = defineStore("workspace", () => {
   const project = ref<Project | null>(null);
   const projectList = ref<Project[]>([]);
   const pendingAgentMessage = ref<{ directory: string; prompt: string; attachments?: AgentAttachment[]; model: string; reasoningEffort: string } | null>(null);
+  const pendingImageGeneration = ref<PendingImageGeneration | null>(null);
 
   async function openProject(path: string, previousDirectory = path, signal?: AbortSignal) {
     const { data } = await axios.get<{ code: number; data?: { directory: string }; message?: string }>("/api/workspaces/check", {
@@ -22,6 +28,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     if (data.code !== 200 || !data.data?.directory) throw new Error(data.message || "工作目录校验失败");
     const checkedDirectory = data.data.directory;
     pendingAgentMessage.value = null;
+    pendingImageGeneration.value = null;
     const existing = projectList.value.find(project => project.directory === previousDirectory)
       ?? projectList.value.find(project => project.directory === checkedDirectory);
     project.value = { directory: checkedDirectory, name: existing?.name || checkedDirectory.split(/[\\/]/).filter(Boolean).at(-1) || checkedDirectory, lastOpenedAt: Date.now() };
@@ -43,7 +50,19 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     if (project.value?.directory === path) project.value = null;
   }
 
-  return { project, projectList, pendingAgentMessage, openProject, renameProject, removeProject };
+  function queueImageGeneration(request: PendingImageGeneration) {
+    pendingAgentMessage.value = null;
+    pendingImageGeneration.value = { ...request };
+  }
+
+  function consumeImageGeneration(directory: string) {
+    const request = pendingImageGeneration.value;
+    if (!request || request.directory !== directory) return;
+    pendingImageGeneration.value = null;
+    return request;
+  }
+
+  return { project, projectList, pendingAgentMessage, pendingImageGeneration, openProject, renameProject, removeProject, queueImageGeneration, consumeImageGeneration };
 }, {
   persist: {
     key: "toonflow.projectList",

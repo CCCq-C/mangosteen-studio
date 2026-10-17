@@ -27,7 +27,7 @@
         </div>
         <div class="promptArea">
           <span class="arrowHint inspirationHint">
-            灵感创作模式
+            {{ creationMode === "image" ? "快速生图模式" : "灵感创作模式" }}
             <svg viewBox="0 0 60 60" fill="none" aria-hidden="true">
               <path d="M4 9C21 0 44 5 40 23C36 39 14 34 22 20C30 7 49 21 47 52M38 43L47 52L54 42" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
@@ -38,16 +38,18 @@
               <strong>松开添加附件</strong>
               <span>图片、视频、文档或代码文件</span>
             </div>
-            <input ref="attachmentInput" type="file" :accept="attachmentAccept" multiple hidden :disabled="creating || opening" @change="selectAttachments" />
+            <input ref="attachmentInput" type="file" :accept="attachmentAccept" multiple hidden :disabled="creating || opening || creationMode === 'image'" @change="selectAttachments" />
             <attachmentList v-if="promptAttachments.length" class="promptAttachments" :attachments="promptAttachments" removable restorable :disabled="creating || opening" @remove="promptAttachments.splice($event, 1)" @restore="restoreAttachment" />
             <el-input ref="promptInput" v-model="prompt" type="textarea" :rows="4" resize="none" :disabled="creating || opening" :placeholder="promptPlaceholder" aria-label="创作描述" @paste.capture="pasteAttachments" />
             <template #footer>
               <div class="composerFooter">
+                <el-segmented v-model="creationMode" class="creationMode" :options="creationModeOptions" :disabled="creating || opening" aria-label="创作模式" />
                 <workspacePicker ref="promptWorkspacePicker" v-model="workspaceDirectory" :disabled="creating || opening" />
                 <el-space class="sendActions" wrap :size="12">
-                  <el-button text circle :icon="IconPaperclip" :disabled="creating || opening" aria-label="添加附件" title="添加附件" @click="attachmentInput?.click()" />
-                  <modelPopover v-model="selectedModel" v-model:reasoningEffort="reasoningEffort" class="modelSelect" :disabled="creating || opening" />
-                  <el-button class="sendButton" type="primary" :circle="!!workspaceDirectory" :icon="workspaceDirectory ? IconArrowUp : IconFolder" :loading="creating" :disabled="creating || opening" :aria-label="workspaceDirectory ? '发送' : '选择工作目录'" @click="workspaceDirectory ? createProject() : promptWorkspacePicker?.chooseDirectory()">
+                  <el-button v-if="creationMode === 'agent'" text circle :icon="IconPaperclip" :disabled="creating || opening" aria-label="添加附件" title="添加附件" @click="attachmentInput?.click()" />
+                  <modelPopover v-if="creationMode === 'agent'" v-model="selectedModel" v-model:reasoningEffort="reasoningEffort" class="modelSelect" :disabled="creating || opening" />
+                  <span v-else class="imageModelHint"><icon-photo-ai :size="17" />自动选择可用图片模型</span>
+                  <el-button class="sendButton" type="primary" :circle="!!workspaceDirectory" :icon="workspaceDirectory ? IconArrowUp : IconFolder" :loading="creating" :disabled="creating || opening || (creationMode === 'image' && !prompt.trim())" :aria-label="workspaceDirectory ? creationMode === 'image' ? '快速生图' : '发送' : '选择工作目录'" @click="workspaceDirectory ? createProject() : promptWorkspacePicker?.chooseDirectory()">
                     <template v-if="!workspaceDirectory" #default>选择工作目录</template>
                   </el-button>
                 </el-space>
@@ -107,7 +109,7 @@ import {
   IconArrowUp, IconLayoutGrid,
   IconList, IconSortDescending,
   IconSortAscending, IconFolder, IconEdit,
-  IconFolderMinus, IconFolderPlus, IconFolderOpen, IconPaperclip,
+  IconFolderMinus, IconFolderPlus, IconFolderOpen, IconPaperclip, IconPhotoAi,
 } from "@tabler/icons-vue";
 import modelPopover from "@/components/modelPopover.vue";
 import attachmentList from "@/components/agent/attachmentList.vue";
@@ -141,7 +143,12 @@ let attachmentDragDepth = 0;
 const workspaceStore = useWorkspaceStore();
 const { project, projectList } = storeToRefs(workspaceStore);
 const workspaceDirectory = ref(project.value?.directory ?? "");
-const placeholderPhrases = [
+const creationMode = ref<"agent" | "image">("agent");
+const creationModeOptions = [
+  { label: "灵感创作", value: "agent" },
+  { label: "快速生图", value: "image" },
+];
+const agentPlaceholderPhrases = [
   "描述你想创作的内容，让灵感从这里开始…",
   "把一个故事灵感，变成一段精彩的短片…",
   "为你的主角设计独特的外形和性格…",
@@ -153,7 +160,13 @@ const placeholderPhrases = [
   "设计一支富有想象力的产品宣传片…",
   "从一句话开始，搭建你的创作工作流…",
 ];
-const promptPlaceholder = ref(translate(placeholderPhrases[0]!));
+const imagePlaceholderPhrases = [
+  "描述你想生成的画面，提交后会直接进入画布…",
+  "一位撑着透明雨伞的女孩，站在霓虹雨夜街头…",
+  "电影感远景，云海之上的东方幻想城市…",
+];
+const placeholderPhrases = computed(() => creationMode.value === "image" ? imagePlaceholderPhrases : agentPlaceholderPhrases);
+const promptPlaceholder = ref(translate(agentPlaceholderPhrases[0]!));
 
 async function handleAccountCommand(command: string) {
   if (command !== "logout") return;
@@ -178,14 +191,14 @@ onMounted(() => {
   window.addEventListener("blur", clearAttachmentDrag);
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let phraseIndex = 0;
-  watch([() => !!prompt.value, locale], ([hasInput], _previous, onCleanup) => {
+  watch([() => !!prompt.value, locale, creationMode], ([hasInput], _previous, onCleanup) => {
     if (reduceMotion) {
-      promptPlaceholder.value = translate(placeholderPhrases[0]!);
+      promptPlaceholder.value = translate(placeholderPhrases.value[0]!);
       return;
     }
     if (hasInput) return;
     const segmenter = new Intl.Segmenter(locale.value, { granularity: "grapheme" });
-    const phrases = placeholderPhrases.map(phrase => [...segmenter.segment(translate(phrase))].map(part => part.segment));
+    const phrases = placeholderPhrases.value.map(phrase => [...segmenter.segment(translate(phrase))].map(part => part.segment));
     let characterCount = 0;
     let deleting = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -201,7 +214,7 @@ onMounted(() => {
         delay = 1800;
       } else if (characterCount === 0) {
         deleting = false;
-        phraseIndex = (phraseIndex + 1) % placeholderPhrases.length;
+        phraseIndex = (phraseIndex + 1) % phrases.length;
         delay = 300;
       }
       timer = setTimeout(typePlaceholder, delay);
@@ -231,6 +244,7 @@ const sortedProjects = computed(() => [...projectList.value].sort((left, right) 
 
 function pasteAttachments(event: ClipboardEvent) {
   if (creating.value || opening.value) return;
+  if (creationMode.value === "image") return;
   try {
     const files = Array.from(event.clipboardData?.files ?? []);
     if (!files.length) {
@@ -295,6 +309,7 @@ function dropAttachments(event: DragEvent) {
 
 function addAttachments(files: File[]) {
   if (creating.value || opening.value) return;
+  if (creationMode.value === "image") return void ElMessage.warning("快速生图当前只支持文字提示词，请切换到灵感创作模式添加附件");
   for (const file of files) {
     const readableMimeType = getReadableFileMimeType(file.name, file.type);
     const mimeType = readableMimeType ?? file.type.split(";")[0]!.trim().toLowerCase();
@@ -370,6 +385,8 @@ async function renameProject(project: Project) {
 
 async function createProject(fromPrompt = true) {
   if (creating.value || opening.value || (fromPrompt && !workspaceDirectory.value)) return;
+  if (fromPrompt && creationMode.value === "image" && !prompt.value.trim()) return void ElMessage.warning("请先描述要生成的画面");
+  if (fromPrompt && creationMode.value === "image" && promptAttachments.value.length) return void ElMessage.warning("快速生图当前只支持文字提示词，请移除附件或切换到灵感创作模式");
   creating.value = true;
   try {
     let path = workspaceDirectory.value;
@@ -385,7 +402,9 @@ async function createProject(fromPrompt = true) {
     if (!empty) return ElMessage.warning("该文件夹不为空，请重新选择空文件夹；已有项目请使用“导入项目”或点击项目列表打开。");
     await useWorkspaceFiles(directory).writeJson("画布1.json", { toonflowCanvas: true, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }, true);
     await workspaceStore.openProject(directory);
-    if (fromPrompt && (prompt.value.trim() || promptAttachments.value.length)) {
+    if (fromPrompt && creationMode.value === "image") {
+      workspaceStore.queueImageGeneration({ directory: workspaceStore.project!.directory, prompt: prompt.value.trim() });
+    } else if (fromPrompt && (prompt.value.trim() || promptAttachments.value.length)) {
       workspaceStore.pendingAgentMessage = { directory: workspaceStore.project!.directory, prompt: prompt.value, attachments: [...promptAttachments.value], model: selectedModel.value, reasoningEffort: reasoningEffort.value };
     }
     await router.push("/workspace");
@@ -565,12 +584,25 @@ async function createProject(fromPrompt = true) {
             flex-wrap: wrap;
             gap: 12px;
 
+            .creationMode {
+              flex: 0 0 auto;
+            }
+
             .sendActions {
               margin-left: auto;
               justify-content: flex-end;
 
               .modelSelect {
                 width: 190px;
+              }
+
+              .imageModelHint {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                color: var(--el-text-color-regular);
+                font-size: 13px;
+                white-space: nowrap;
               }
 
               .sendButton {

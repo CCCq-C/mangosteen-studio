@@ -9,5 +9,7 @@ export default Router().post("/", validateFields({
   password: z.string().min(1).max(128),
 }), async (req, res) => {
   const user = await u.aihubkitAccount.loginAccount(req.body.username, req.body.password);
+  u.aihubkitCatalog.clearAihubkitCatalog();
+  void u.aihubkitCatalog.refreshAihubkitCatalog().catch(() => {});
   res.json(success({ authenticated: true, user }));
 });

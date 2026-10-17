@@ -194,6 +194,67 @@ provide("performWorkspaceFileAction", (directory: string, action: "copy" | "rena
 
 const controlLifetime = new AbortController();
 onScopeDispose(() => controlLifetime.abort(new Error("工作区已关闭")));
+let quickImageBusy = false;
+watch([
+  () => canvasPanelRef.value?.canvasReady,
+  () => workspaceStore.pendingImageGeneration,
+  () => workspaceStore.project?.directory,
+], ([ready, request, directory]) => {
+  if (ready && typeof directory === "string" && request?.directory === directory && !quickImageBusy) void runPendingImageGeneration(directory);
+}, { immediate: true, flush: "post" });
+
+async function waitForImageNodeTools(context: NonNullable<ReturnType<NonNullable<InstanceType<typeof canvasPanel>["getCanvasContext"]>>>, nodeId: string, signal: AbortSignal) {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    signal.throwIfAborted();
+    const result = await context.call({
+      name: "getNodeTools",
+      args: { nodeIds: [nodeId], names: ["node:getConfig", "node:setConfig", "node:setPrompt", "node:generateImage"], limit: 20 },
+    }, signal) as { nodeTools?: { name?: string }[] };
+    const names = new Set((result.nodeTools ?? []).map(tool => tool.name));
+    if (["node:getConfig", "node:setConfig", "node:setPrompt", "node:generateImage"].every(name => names.has(name))) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error("图片生成节点加载超时，请重新打开项目后重试");
+}
+
+async function runPendingImageGeneration(directory: string) {
+  const request = workspaceStore.consumeImageGeneration(directory);
+  if (!request) return;
+  quickImageBusy = true;
+  const signal = AbortSignal.any([controlLifetime.signal, AbortSignal.timeout(30_000)]);
+  try {
+    const context = await waitForControlValue(() => canvasPanelRef.value?.canvasReady ? canvasPanelRef.value.getCanvasContext() : undefined, signal);
+    const created = await context.call({
+      name: "addNode",
+      args: { type: "remote-imageGenerationNode", position: { x: 0, y: 0 }, label: "快速生图" },
+    }, signal) as { node?: { id?: string } };
+    const nodeId = created.node?.id;
+    if (!nodeId) throw new Error("图片生成节点创建失败");
+    await waitForImageNodeTools(context, nodeId, signal);
+    await context.call({ name: "nodeTools", args: { nodeId, name: "node:setPrompt", args: { prompt: request.prompt } } }, signal);
+    let config = await context.call({ name: "nodeTools", args: { nodeId, name: "node:getConfig", args: {} } }, signal) as {
+      config?: { providerId?: string; modelId?: string };
+      models?: { providerId: string; modelId: string }[];
+    };
+    if (!config.config?.modelId && config.models?.[0]) {
+      const model = config.models[0];
+      config = await context.call({ name: "nodeTools", args: { nodeId, name: "node:setConfig", args: { providerId: model.providerId, modelId: model.modelId } } }, signal) as typeof config;
+    }
+    await context.call({ name: "selectNodes", args: { nodeIds: [nodeId] } }, signal);
+    await context.call({ name: "fitCanvas", args: { nodeIds: [nodeId] } }, signal);
+    if (!config.config?.modelId) {
+      ElMessage.warning("当前没有可用图片模型，节点已创建，请刷新后重新选择模型");
+      return;
+    }
+    await context.call({ name: "nodeTools", args: { nodeId, name: "node:generateImage", args: {} } }, signal);
+    ElMessage.success("已在画布中开始生成图片");
+  } catch (error) {
+    if (!controlLifetime.signal.aborted) ElMessage.error(error instanceof Error ? error.message : "快速生图启动失败，请重试");
+  } finally {
+    quickImageBusy = false;
+  }
+}
+
 registerWorkspaceControl({
   getState: () => ({
     directory: workspaceStore.project?.directory ?? null,

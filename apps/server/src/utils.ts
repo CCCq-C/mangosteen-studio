@@ -28,6 +28,7 @@ import * as a2aSettings from "@/agent/a2a/settings";
 import * as personalization from "@/utils/personalization";
 import * as mentionFiles from "@/agent/mentionFiles";
 import * as aihubkitAccount from "@/utils/aihubkit/account";
+import * as aihubkitCatalog from "@/utils/aihubkit/catalog";
 
 export default {
   assets,
@@ -62,4 +63,5 @@ export default {
   personalization,
   mentionFiles,
   aihubkitAccount,
+  aihubkitCatalog,
 };

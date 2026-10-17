@@ -224,3 +224,13 @@ Provider 只在远端明确表示无可用渠道时请求宿主切换下一个�
 
 检查工作树干净和提交范围，合并回 `main`，推送私有 GitHub，并核对远端 SHA。只有构建和真实客户端验收均完成后才把该功能描述为可用。
 
+---
+
+## 执行结果（2026-10-17）
+
+- Task 1–7 已完成；动态目录、异步文生图 Provider、模型失效规则与首页快速生图已进入同一条通用媒体链路。
+- 非付费验证已完成：真实目录同步、模型列表端点、macOS 客户端首页、图片节点动态下拉和失效模型本地拦截均通过。
+- 类型检查和构建已通过；Desktop 产物为 `build/desktop/app/stable-macos-arm64/Mangosteen Studio.app` 与 `build/desktop/artifacts/macArm64/macos-arm64-MangosteenStudio.dmg`。
+- 未执行真实付费图片请求；Task 8 步骤 3 保留给用户在客户端内明确提交。
+- 本批不修改版本号：当前工作是首个增量功能批次而非对外发行版，避免把未完成付费验收的构建标成正式发布。
+

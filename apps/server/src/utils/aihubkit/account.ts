@@ -1,4 +1,12 @@
 import { secrets } from "bun";
+import {
+  AihubkitServiceError,
+  aihubkitApiBase,
+  readableAihubkitMessage,
+  requestAihubkitEnvelope,
+} from "@/utils/aihubkit/client";
+
+export { AihubkitServiceError as AccountServiceError } from "@/utils/aihubkit/client";
 
 export interface PublicAccount {
   id: number;
@@ -17,128 +25,51 @@ interface StoredSession {
   displayName: string;
   sessionCookie: string;
   accessToken: string;
+  groupApiKeys: Record<string, string>;
 }
 
-interface ApiEnvelope {
-  success: boolean;
-  message?: unknown;
-  data?: unknown;
-}
-
-export class AccountServiceError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "AccountServiceError";
-    this.status = status;
-  }
-}
-
-const apiBase = "https://apimodel.aihubkit.com";
 const keychainService = "com.mangosteen.studio";
 const keychainName = "aihubkitSession";
-const requestTimeout = 20_000;
 const affiliateCode = "DlQa";
-
-function readableMessage(value: unknown) {
-  if (typeof value !== "string") return;
-  const message = value.trim();
-  return message && message.length <= 300 ? message : undefined;
-}
-
-function statusFor(response: Response) {
-  if (response.status === 401 || response.status === 403) return 401;
-  if (response.status >= 400 && response.status < 500) return response.status;
-  return 502;
-}
-
-async function requestJson(
-  path: string,
-  init: RequestInit = {},
-  businessErrorStatus = 400,
-) {
-  let response: Response;
-  try {
-    response = await fetch(new URL(path, apiBase), {
-      ...init,
-      headers: {
-        Accept: "application/json",
-        ...init.headers,
-      },
-      signal: AbortSignal.timeout(requestTimeout),
-    });
-  } catch (cause) {
-    if (cause instanceof DOMException && ["AbortError", "TimeoutError"].includes(cause.name)) {
-      throw new AccountServiceError(504, "账户服务请求超时，请稍后重试");
-    }
-    throw new AccountServiceError(503, "账户服务网络不可用，请检查网络后重试");
-  }
-
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("application/json")) {
-    if (!response.ok) {
-      throw new AccountServiceError(statusFor(response), "账户服务暂时不可用，请稍后重试");
-    }
-    throw new AccountServiceError(502, "账户服务返回异常，请稍后重试");
-  }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new AccountServiceError(502, "账户服务返回异常，请稍后重试");
-  }
-  if (!payload || typeof payload !== "object" || typeof (payload as Partial<ApiEnvelope>).success !== "boolean") {
-    throw new AccountServiceError(502, "账户服务返回异常，请稍后重试");
-  }
-
-  const envelope = payload as ApiEnvelope;
-  if (!response.ok) {
-    throw new AccountServiceError(
-      statusFor(response),
-      readableMessage(envelope.message) ?? "账户服务请求失败，请稍后重试",
-    );
-  }
-  if (!envelope.success) {
-    throw new AccountServiceError(
-      businessErrorStatus,
-      readableMessage(envelope.message) ?? "账户服务未完成请求，请检查输入后重试",
-    );
-  }
-  return { envelope, response };
-}
 
 function sessionCookie(response: Response) {
   const header = response.headers.get("set-cookie") ?? "";
   const match = header.match(/(?:^|,\s*)session=([^;,\s]+)/i);
-  if (!match?.[1]) throw new AccountServiceError(502, "账户服务返回异常，请稍后重试");
+  if (!match?.[1]) throw new AihubkitServiceError(502, "账户服务返回异常，请稍后重试");
   return "session=" + match[1];
 }
 
 function loginAccountData(data: unknown): PublicAccount {
   if (!data || typeof data !== "object") {
-    throw new AccountServiceError(502, "账户服务返回异常，请稍后重试");
+    throw new AihubkitServiceError(502, "账户服务返回异常，请稍后重试");
   }
   const value = data as { id?: unknown; display_name?: unknown; username?: unknown };
-  const displayName = readableMessage(value.display_name) ?? readableMessage(value.username);
+  const displayName = readableAihubkitMessage(value.display_name) ?? readableAihubkitMessage(value.username);
   if (!Number.isSafeInteger(value.id) || (value.id as number) <= 0 || !displayName) {
-    throw new AccountServiceError(502, "账户服务返回异常，请稍后重试");
+    throw new AihubkitServiceError(502, "账户服务返回异常，请稍后重试");
   }
   return { id: value.id as number, displayName };
 }
 
 function accessToken(data: unknown) {
   if (typeof data !== "string" || !data.trim()) {
-    throw new AccountServiceError(502, "账户服务返回异常，请稍后重试");
+    throw new AihubkitServiceError(502, "账户服务返回异常，请稍后重试");
   }
   return data;
 }
 
-function isStoredSession(value: unknown): value is StoredSession {
-  if (!value || typeof value !== "object") return false;
+function groupApiKeys(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([group, key]) => {
+    const name = group.trim();
+    return name && name.length <= 200 && typeof key === "string" && key.trim() ? [[name, key.trim()]] : [];
+  }).slice(0, 500));
+}
+
+function storedSession(value: unknown): StoredSession | undefined {
+  if (!value || typeof value !== "object") return;
   const session = value as Partial<StoredSession>;
-  return Number.isSafeInteger(session.userId)
+  const valid = Number.isSafeInteger(session.userId)
     && (session.userId as number) > 0
     && typeof session.displayName === "string"
     && Boolean(session.displayName)
@@ -146,13 +77,15 @@ function isStoredSession(value: unknown): value is StoredSession {
     && session.sessionCookie.startsWith("session=")
     && typeof session.accessToken === "string"
     && Boolean(session.accessToken);
+  if (!valid) return;
+  return { ...session as StoredSession, groupApiKeys: groupApiKeys(session.groupApiKeys) };
 }
 
 async function deleteStoredSession() {
   try {
     await secrets.delete({ service: keychainService, name: keychainName });
   } catch {
-    throw new AccountServiceError(500, "无法删除系统钥匙串中的登录信息");
+    throw new AihubkitServiceError(500, "无法删除系统钥匙串中的登录信息");
   }
 }
 
@@ -161,13 +94,14 @@ async function readStoredSession() {
   try {
     value = await secrets.get({ service: keychainService, name: keychainName });
   } catch {
-    throw new AccountServiceError(500, "无法读取系统钥匙串中的登录信息");
+    throw new AihubkitServiceError(500, "无法读取系统钥匙串中的登录信息");
   }
   if (!value) return null;
 
   try {
     const session: unknown = JSON.parse(value);
-    if (isStoredSession(session)) return session;
+    const normalized = storedSession(session);
+    if (normalized) return normalized;
   } catch {
     // 损坏的历史数据在下方统一清理。
   }
@@ -183,12 +117,12 @@ async function writeStoredSession(session: StoredSession) {
       value: JSON.stringify(session),
     });
   } catch {
-    throw new AccountServiceError(500, "无法把登录信息写入系统钥匙串");
+    throw new AihubkitServiceError(500, "无法把登录信息写入系统钥匙串");
   }
 }
 
 async function refreshToken(session: Pick<StoredSession, "userId" | "sessionCookie">) {
-  const { envelope } = await requestJson("/api/user/token", {
+  const { envelope } = await requestAihubkitEnvelope("/api/user/token", {
     headers: {
       Cookie: session.sessionCookie,
       "New-Api-User": String(session.userId),
@@ -198,13 +132,13 @@ async function refreshToken(session: Pick<StoredSession, "userId" | "sessionCook
 }
 
 export async function requestVerification(email: string) {
-  const url = new URL("/api/verification", apiBase);
+  const url = new URL("/api/verification", aihubkitApiBase);
   url.searchParams.set("email", email);
-  await requestJson(url.href);
+  await requestAihubkitEnvelope(url.href);
 }
 
 export async function registerAccount(input: RegistrationInput) {
-  await requestJson("/api/user/register", {
+  await requestAihubkitEnvelope("/api/user/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -218,7 +152,7 @@ export async function registerAccount(input: RegistrationInput) {
 }
 
 export async function loginAccount(username: string, password: string) {
-  const { envelope, response } = await requestJson("/api/user/login", {
+  const { envelope, response } = await requestAihubkitEnvelope("/api/user/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -231,24 +165,47 @@ export async function loginAccount(username: string, password: string) {
     displayName: user.displayName,
     sessionCookie: cookie,
     accessToken: token,
+    groupApiKeys: {},
   });
   return user;
 }
 
-export async function restoreAccount() {
+async function refreshStoredSession() {
   const session = await readStoredSession();
   if (!session) return null;
   try {
     session.accessToken = await refreshToken(session);
     await writeStoredSession(session);
-    return { id: session.userId, displayName: session.displayName } satisfies PublicAccount;
+    return session;
   } catch (cause) {
-    if (cause instanceof AccountServiceError && cause.status === 401) {
+    if (cause instanceof AihubkitServiceError && cause.status === 401) {
       await deleteStoredSession();
       return null;
     }
     throw cause;
   }
+}
+
+export async function restoreAccount() {
+  const session = await refreshStoredSession();
+  return session ? { id: session.userId, displayName: session.displayName } satisfies PublicAccount : null;
+}
+
+export async function getAihubkitAccess() {
+  const session = await refreshStoredSession();
+  if (!session) throw new AihubkitServiceError(401, "登录已失效，请重新登录");
+  return {
+    userId: session.userId,
+    accessToken: session.accessToken,
+    groupApiKeys: { ...session.groupApiKeys },
+  };
+}
+
+export async function saveGroupApiKeys(userId: number, keys: Record<string, string>) {
+  const session = await readStoredSession();
+  if (!session || session.userId !== userId) throw new AihubkitServiceError(401, "登录已切换，请重新获取模型");
+  session.groupApiKeys = groupApiKeys(keys);
+  await writeStoredSession(session);
 }
 
 export async function logoutAccount() {

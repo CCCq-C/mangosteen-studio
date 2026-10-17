@@ -1,0 +1,269 @@
+import { AihubkitServiceError, requestAihubkitEnvelope, requestAihubkitJson } from "@/utils/aihubkit/client";
+import { getAihubkitAccess, saveGroupApiKeys } from "@/utils/aihubkit/account";
+
+export type AihubkitModelType = "image" | "video" | "language" | "unknown";
+
+export interface AihubkitCatalogModel {
+  id: string;
+  label: string;
+  type: Exclude<AihubkitModelType, "unknown">;
+  groups: { id: string; label: string; ratio: number }[];
+}
+
+export interface AihubkitCatalog {
+  revision: number;
+  syncedAt: number;
+  models: AihubkitCatalogModel[];
+  unknownModelCount: number;
+  partial: boolean;
+}
+
+interface GroupInfo {
+  id: string;
+  label: string;
+  ratio: number;
+}
+
+interface GroupCatalog {
+  info: GroupInfo;
+  apiKey: string;
+  models: string[];
+}
+
+interface CatalogState extends AihubkitCatalog {
+  userId: number;
+  groupCatalogs: Map<string, GroupCatalog>;
+  candidates: Map<string, { group: string; apiKey: string }[]>;
+}
+
+const catalogMaxAge = 10 * 60_000;
+let currentCatalog: CatalogState | undefined;
+let refreshRequest: Promise<AihubkitCatalog> | undefined;
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+let catalogEpoch = 0;
+
+function object(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function text(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeGroups(value: unknown) {
+  const groups = object(value);
+  if (!groups) throw new AihubkitServiceError(502, "AIHubKit 分组响应格式不正确");
+  return Object.entries(groups).flatMap(([id, detail]) => {
+    const groupId = id.trim();
+    if (!groupId || groupId.length > 200) return [];
+    const data = object(detail) ?? {};
+    const ratio = Number(data.ratio);
+    return [{ id: groupId, label: text(data.desc) || groupId, ratio: Number.isFinite(ratio) ? ratio : 1 } satisfies GroupInfo];
+  });
+}
+
+function normalizeModels(value: unknown) {
+  const payload = object(value);
+  const items = Array.isArray(value) ? value : payload?.data;
+  if (!Array.isArray(items)) throw new AihubkitServiceError(502, "AIHubKit 模型响应格式不正确");
+  const seen = new Set<string>();
+  return items.flatMap((item) => {
+    const id = text(object(item)?.id);
+    if (!id || id.length > 200 || seen.has(id)) return [];
+    seen.add(id);
+    return [id];
+  });
+}
+
+function groupType(group: GroupInfo): AihubkitModelType {
+  const value = `${group.id} ${group.label}`;
+  if (/(?:video|seedance|sora|veo|kling|hailuo|海螺|可灵|视频)/i.test(value)) return "video";
+  if (/(?:image|seedream|draw|绘图|生图|图片|图像)/i.test(value)) return "image";
+  if (/(?:language|chat|gpt|claude|deepseek|gemini|qwen|codex|grok|国模|语言|对话|文本)/i.test(value)) return "language";
+  return "unknown";
+}
+
+function modelType(model: string, group: GroupInfo): AihubkitModelType {
+  if (/(?:gpt[-_. ]?image|image|imagen|seedream|flux|dall|recraft|midjourney|mj-|banana|wanx|cogview|kolors|hunyuanimage|qwen[-_. ]?image|ideogram|stable[-_. ]?diffusion|sdxl)/i.test(model)) return "image";
+  if (/(?:video|seedance|sora|veo|kling|hailuo|minimax[-_. ]?h3|vidu|runway|luma|wan[-_. ]?\d)/i.test(model)) return "video";
+  if (/(?:gpt|claude|deepseek|gemini|qwen|glm|moonshot|kimi|codex|grok|mimo|^hy\d|llama|mistral|command[-_. ]?r|doubao|minimax)/i.test(model)) return "language";
+  return groupType(group);
+}
+
+async function createGroupKey(accessToken: string, userId: number, group: string) {
+  const { envelope } = await requestAihubkitEnvelope("/api/token/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "New-Api-User": String(userId),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name: `山竹漫剧-${group}`, group, unlimited_quota: true }),
+  });
+  const key = text(object(envelope.data)?.key);
+  if (!key) throw new AihubkitServiceError(502, "AIHubKit 未返回分组密钥");
+  return key;
+}
+
+async function wait(milliseconds: number) {
+  await new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function readGroupModels(apiKey: string, retryPropagation: boolean) {
+  const attempts = retryPropagation ? 5 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt) await wait(attempt * 350);
+    try {
+      const { payload } = await requestAihubkitJson("/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      const models = normalizeModels(payload);
+      if (models.length || attempt === attempts - 1) return models;
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof AihubkitServiceError) || !retryPropagation || ![400, 401, 404, 429, 502, 503, 504].includes(error.status)) throw error;
+    }
+  }
+  throw lastError ?? new AihubkitServiceError(502, "AIHubKit 暂未返回模型");
+}
+
+function publicCatalog(state: CatalogState): AihubkitCatalog {
+  return {
+    revision: state.revision,
+    syncedAt: state.syncedAt,
+    models: state.models.map(model => ({ ...model, groups: model.groups.map(group => ({ ...group })) })),
+    unknownModelCount: state.unknownModelCount,
+    partial: state.partial,
+  };
+}
+
+function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, partial: boolean) {
+  const models = new Map<string, AihubkitCatalogModel>();
+  const candidates = new Map<string, { group: string; apiKey: string }[]>();
+  const unknownModels = new Set<string>();
+  for (const group of groupCatalogs.values()) {
+    for (const id of group.models) {
+      const type = modelType(id, group.info);
+      if (type === "unknown") {
+        unknownModels.add(id);
+        continue;
+      }
+      const key = `${type}\u0000${id}`;
+      const model = models.get(key) ?? { id, label: id, type, groups: [] };
+      model.groups.push({ ...group.info });
+      models.set(key, model);
+      const entries = candidates.get(key) ?? [];
+      entries.push({ group: group.info.id, apiKey: group.apiKey });
+      candidates.set(key, entries);
+    }
+  }
+  return {
+    userId,
+    revision: (currentCatalog?.userId === userId ? currentCatalog.revision : 0) + 1,
+    syncedAt: Date.now(),
+    models: [...models.values()].sort((left, right) => left.type.localeCompare(right.type) || left.label.localeCompare(right.label)),
+    unknownModelCount: unknownModels.size,
+    partial,
+    groupCatalogs,
+    candidates,
+  } satisfies CatalogState;
+}
+
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    void refreshAihubkitCatalog().catch(() => {});
+  }, catalogMaxAge);
+  refreshTimer.unref?.();
+}
+
+async function synchronizeCatalog(epoch: number) {
+  const access = await getAihubkitAccess();
+  const { envelope } = await requestAihubkitEnvelope("/api/user/self/groups", {
+    headers: {
+      Authorization: `Bearer ${access.accessToken}`,
+      "New-Api-User": String(access.userId),
+    },
+  });
+  const groups = normalizeGroups(envelope.data);
+  const keys = { ...access.groupApiKeys };
+  const previous = currentCatalog?.userId === access.userId ? currentCatalog.groupCatalogs : new Map<string, GroupCatalog>();
+  const next = new Map<string, GroupCatalog>();
+  let successfulGroups = 0;
+  let firstFailure: unknown;
+  let partial = false;
+
+  // ACT: 分组顺序同步，避免首次登录时并发创建大量令牌和模型请求。
+  for (const info of groups) {
+    let apiKey = keys[info.id] ?? "";
+    let created = false;
+    try {
+      if (!apiKey) {
+        apiKey = await createGroupKey(access.accessToken, access.userId, info.id);
+        keys[info.id] = apiKey;
+        created = true;
+      }
+      let models: string[];
+      try {
+        models = await readGroupModels(apiKey, created);
+      } catch (error) {
+        if (!(error instanceof AihubkitServiceError) || error.status !== 401 || created) throw error;
+        apiKey = await createGroupKey(access.accessToken, access.userId, info.id);
+        keys[info.id] = apiKey;
+        models = await readGroupModels(apiKey, true);
+      }
+      next.set(info.id, { info, apiKey, models });
+      successfulGroups++;
+    } catch (error) {
+      partial = true;
+      firstFailure ??= error;
+      const cached = previous.get(info.id);
+      if (cached) next.set(info.id, { ...cached, info, apiKey: apiKey || cached.apiKey });
+    }
+  }
+
+  if (groups.length && !successfulGroups) throw firstFailure ?? new AihubkitServiceError(502, "AIHubKit 暂未返回可用模型");
+  if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
+  if (JSON.stringify(keys) !== JSON.stringify(access.groupApiKeys)) await saveGroupApiKeys(access.userId, keys);
+  if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
+  currentCatalog = buildCatalog(access.userId, next, partial);
+  scheduleRefresh();
+  return publicCatalog(currentCatalog);
+}
+
+export function refreshAihubkitCatalog() {
+  if (refreshRequest) return refreshRequest;
+  const request = synchronizeCatalog(catalogEpoch);
+  const tracked = request.finally(() => {
+    if (refreshRequest === tracked) refreshRequest = undefined;
+  });
+  refreshRequest = tracked;
+  return tracked;
+}
+
+export async function getAihubkitCatalog(force = false) {
+  if (!force && currentCatalog && Date.now() - currentCatalog.syncedAt < catalogMaxAge) return publicCatalog(currentCatalog);
+  try {
+    return await refreshAihubkitCatalog();
+  } catch (error) {
+    if (error instanceof AihubkitServiceError && error.status === 401) clearAihubkitCatalog();
+    if (currentCatalog) return publicCatalog(currentCatalog);
+    throw error;
+  }
+}
+
+export async function getAihubkitModelCandidates(modelId: string, type: Exclude<AihubkitModelType, "unknown">) {
+  await getAihubkitCatalog();
+  const key = `${type}\u0000${modelId}`;
+  if (!currentCatalog?.models.some(model => model.id === modelId && model.type === type)) return [];
+  return (currentCatalog.candidates.get(key) ?? []).map(candidate => ({ ...candidate }));
+}
+
+export function clearAihubkitCatalog() {
+  catalogEpoch++;
+  clearTimeout(refreshTimer);
+  refreshTimer = undefined;
+  refreshRequest = undefined;
+  currentCatalog = undefined;
+}
