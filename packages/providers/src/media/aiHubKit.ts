@@ -87,7 +87,7 @@ async function imageUpload(context: ProviderContext, input: MediaInput, index: n
     if (!mimeType) throw new Error("下载的参考素材不是可识别的图片");
   }
   const extension = imageExtensions[mimeType] ?? "img";
-  return { blob: new Blob([bytes], { type: mimeType }), filename: `reference-${index + 1}.${extension}` };
+  return { blob: new Blob([Uint8Array.from(bytes).buffer], { type: mimeType }), filename: `reference-${index + 1}.${extension}` };
 }
 
 type ImageUploads = { images: Awaited<ReturnType<typeof imageUpload>>[]; mask?: Awaited<ReturnType<typeof imageUpload>> };
