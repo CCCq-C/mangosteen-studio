@@ -56,8 +56,8 @@ await write("build-profile.json5", {
   app: { signingConfigs: signingConfig ? [signingConfig] : [], products: [{ name: "default", ...(signingConfig ? { signingConfig: signingConfig.name } : {}), compatibleSdkVersion: "5.0.0(12)", targetSdkVersion: "26.0.0", runtimeOS: "HarmonyOS" }], buildModeSet: [{ name: "debug" }, { name: "release" }] },
   modules: [{ name: "entry", srcPath: "./entry", targets: [{ name: "default", applyToProducts: ["default"] }] }],
 });
-await write("AppScope/app.json5", { app: { bundleName: "com.toonflow.mobile", vendor: "Toonflow", versionCode, versionName: version, icon: "$media:logo", label: "$string:appName" } });
-await write("AppScope/resources/base/element/string.json", { string: [{ name: "appName", value: "Toonflow" }] });
+await write("AppScope/app.json5", { app: { bundleName: "com.toonflow.mobile", vendor: "Mangosteen Studio", versionCode, versionName: version, icon: "$media:logo", label: "$string:appName" } });
+await write("AppScope/resources/base/element/string.json", { string: [{ name: "appName", value: "山竹漫剧" }] });
 await mkdir(join(staging, "AppScope/resources/base/media"), { recursive: true });
 await copyFile(join(projectRoot, "packages/assets/logo.iconset/icon_512x512.png"), join(staging, "AppScope/resources/base/media/logo.png"));
 await write("entry/hvigorfile.ts", 'import { hapTasks } from "@ohos/hvigor-ohos-plugin";\nexport default { system: hapTasks };\n');

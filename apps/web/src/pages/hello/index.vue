@@ -107,7 +107,6 @@
 
       <footer class="pageFooter">
         <p>© {{ new Date().getFullYear() }} 山竹漫剧</p>
-        <p>基于 Toonflow v2.0.6 构建</p>
       </footer>
     </section>
 

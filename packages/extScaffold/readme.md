@@ -134,7 +134,7 @@ export default createExtConfig(metadata, import.meta.url);
 
 声明文件不导入组件，避免配置打包器提前解析 Vue 文件。每次重建重新读取声明及其依赖，后缀、图标与设置变更会同步进入 UMD 元数据；修改扩展 ID 后须重启构建。
 
-产物为 `build/ext/<id>.umd.js`，例如 `build/ext/ext-image.umd.js`，包含 `toonflowExt` JSON 元数据注释、版本、说明文档和自动注入的组件样式。产物导出 `window.toonflowExts[id]`，结构为 `ExtDefinition`。Vue、Element Plus 与 Toonflow 语言状态由宿主共享：
+产物为 `build/ext/<id>.umd.js`，例如 `build/ext/ext-image.umd.js`，包含 `toonflowExt` JSON 元数据注释、版本、说明文档和自动注入的组件样式。产物导出 `window.toonflowExts[id]`，结构为 `ExtDefinition`。Vue、Element Plus 与 山竹漫剧 语言状态由宿主共享：
 
 ```ts
 import * as vue from "vue";

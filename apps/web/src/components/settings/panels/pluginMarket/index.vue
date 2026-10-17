@@ -2,17 +2,10 @@
   <div class="pluginMarket">
     <div class="marketToolbar">
       <nav class="marketNav" aria-label="插件列表">
-        <button class="navButton" type="button" :aria-pressed="isMarketTab" @click="activeTab = 'discover'">发现插件</button>
         <button class="navButton" type="button" :aria-pressed="activeTab === 'installed'" @click="activeTab = 'installed'">已安装</button>
         <button class="navButton" type="button" :aria-pressed="activeTab === 'ffmpeg'" @click="activeTab = 'ffmpeg'">FFmpeg</button>
       </nav>
       <div class="marketActions">
-        <el-button tag="a" href="https://api.toonflow.net/console/plugIn" target="_blank" rel="noopener noreferrer" size="small" text :icon="IconExternalLink">
-          网页版市场
-        </el-button>
-        <el-button tag="a" href="https://qcn7xdsqgc4z.feishu.cn/docx/KNBNd9naqolsy6xjAOCcEAkqnRd" target="_blank" rel="noopener noreferrer" size="small" text :icon="IconBook">
-          开发者文档
-        </el-button>
         <template v-if="activeTab === 'installed'">
           <el-button v-if="selectedType === 'ext' || selectedType === 'all'" size="small" :icon="IconSettings" @click="associationsVisible = true">默认打开方式</el-button>
           <el-button size="small" type="primary" :icon="IconUpload" :loading="installing" aria-label="安装本地插件" @click="pluginFileInput?.click()">
@@ -42,7 +35,7 @@
           {{ category.label }}
           <span v-if="activeTab === 'installed' && installedCounts[type] !== undefined" class="filterCount">{{ installedCounts[type] }}</span>
         </button>
-        <div class="personalFilters" role="group" aria-label="我的插件">
+        <div v-if="isMarketTab" class="personalFilters" role="group" aria-label="我的插件">
           <button class="filterButton" type="button" :aria-pressed="selectedType === 'collection'" @click="selectedType = 'collection'">收藏</button>
           <button class="filterButton" type="button" :aria-pressed="selectedType === 'my'" @click="selectedType = 'my'">我的</button>
         </div>
@@ -102,9 +95,9 @@
                 <component :is="pluginTypes[plugin.type].icon" :size="18" aria-hidden="true" />
                 <span class="pluginTitle">{{ plugin.displayName }}</span>
                 <a
-                  v-if="plugin.github"
+                  v-if="visibleGithub(plugin.github)"
                   class="repoLink"
-                  :href="plugin.github"
+                  :href="visibleGithub(plugin.github)"
                   target="_blank"
                   rel="noopener noreferrer"
                   :aria-label="`${plugin.displayName} 的 GitHub`"
@@ -117,10 +110,10 @@
             </div>
             <el-tag :type="pluginTypes[plugin.type].tagType" size="small">{{ pluginTypes[plugin.type].label }}</el-tag>
           </div>
-          <p v-if="plugin.description" class="pluginDescription">{{ plugin.description }}</p>
+          <p v-if="plugin.description" class="pluginDescription">{{ displayPluginText(plugin.description) }}</p>
           <el-text v-if="plugin.loadError" type="danger" size="small">{{ plugin.loadError }}</el-text>
           <div v-if="plugin.author || plugin.version" class="pluginMeta">
-            <span v-if="plugin.author" class="pluginAuthor">{{ plugin.author }}</span>
+            <span v-if="plugin.author" class="pluginAuthor">{{ displayAuthor(plugin.author) }}</span>
             <span v-if="plugin.version" class="pluginVersion" type="info" size="small" effect="plain">v{{ plugin.version }}</span>
           </div>
           <div v-if="isMarketTab" class="pluginFooter" @click.stop>
@@ -196,7 +189,7 @@
                 </el-button>
               </el-badge>
               <el-popconfirm
-                v-if="plugin.author !== 'Toonflow' || plugin.type === 'skill' || plugin.type === 'agent' || plugin.type === 'ext'"
+                v-if="!isOfficialAuthor(plugin.author) || plugin.type === 'skill' || plugin.type === 'agent' || plugin.type === 'ext'"
                 :title="`确定卸载“${plugin.displayName}”${plugin.type === 'skill' ? '及其附属文件' : ''}吗？`"
                 width="280"
                 confirmButtonText="卸载"
@@ -252,7 +245,7 @@
         appendToBody
         destroyOnClose>
         <div class="pluginContent" tabindex="0" aria-label="插件说明">
-          <messageMarkdown :content="selectedPlugin.readme ?? ''" />
+          <messageMarkdown :content="displayPluginText(selectedPlugin.readme ?? '')" />
         </div>
       </el-dialog>
     </template>
@@ -264,7 +257,7 @@ import { translate } from "@toonflow/i18n/vue";
 import axios from "axios";
 import parse from "semver/functions/parse";
 import { computed, defineAsyncComponent, markRaw, onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { IconBox, IconBook, IconTool, IconFileText, IconExternalLink, IconSparkles2, IconUpload, IconShare, IconStar, IconStarFilled, IconLink, IconSettings, IconCopy } from "@tabler/icons-vue";
+import { IconBox, IconBook, IconTool, IconFileText, IconSparkles2, IconUpload, IconShare, IconStar, IconStarFilled, IconLink, IconSettings, IconCopy } from "@tabler/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import tf, { getTfApiKey, isTfRouterProvider } from "@/lib/tf";
 import { saveSettings } from "@/stores/settings";
@@ -294,7 +287,7 @@ const pluginTypes = {
   agent: { label: "Agent", path: agentMarketEnabled ? "agents" : null, icon: IconSparkles2, tagType: "danger" },
 } as const;
 const tabs = { get discover() { return translate("发现插件"); }, get installed() { return translate("已安装"); }, ffmpeg: "FFmpeg" } as const;
-const activeTab = ref<keyof typeof tabs>("discover");
+const activeTab = ref<keyof typeof tabs>("installed");
 const isMarketTab = computed(() => activeTab.value === "discover");
 const marketPage = ref(1);
 const marketPageSize = 20;
@@ -356,6 +349,14 @@ const selectedSkill = ref<Plugin>();
 const detailsVisible = ref(false);
 const messageMarkdown = defineAsyncComponent(() => import("@/components/messageMarkdown.vue"));
 const requestHeaders = { "x-toonflow-workspace": "1" };
+const officialAuthors = new Set(["Toonflow", "山竹漫剧"]);
+const isOfficialAuthor = (author?: string) => !!author && officialAuthors.has(author);
+const displayAuthor = (author: string) => author === "Toonflow" ? "山竹漫剧" : author;
+const displayPluginText = (value: string) => value
+  .replaceAll("Toonflow ", "山竹漫剧")
+  .replaceAll(" Toonflow", "山竹漫剧")
+  .replaceAll("Toonflow", "山竹漫剧");
+const visibleGithub = (url?: string) => url && !url.includes("HBAI-Ltd/Toonflow-app") ? url : undefined;
 
 const searchQuery = ref("");
 const appliedQuery = ref("");
@@ -745,7 +746,7 @@ async function updatePlugin(plugin: Plugin, action: "setEnabled" | "uninstall", 
     loading.value ||
     pendingPlugins.value.has(plugin.key) ||
     exportingPlugins.value.has(plugin.key) ||
-    (action === "uninstall" && plugin.author === "Toonflow" && (plugin.type === "node" || plugin.type === "tool"))
+    (action === "uninstall" && isOfficialAuthor(plugin.author) && (plugin.type === "node" || plugin.type === "tool"))
   )
     return;
   pendingPlugins.value.add(plugin.key);

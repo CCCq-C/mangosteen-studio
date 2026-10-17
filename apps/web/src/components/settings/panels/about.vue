@@ -20,14 +20,6 @@
         </div>
       </dl>
     </el-card>
-
-    <el-card class="infoCard" shadow="never">
-      <p class="attribution">
-        山竹漫剧基于
-        <a href="https://github.com/HBAI-Ltd/Toonflow-app" target="_blank" rel="noopener noreferrer">Toonflow v2.0.6</a>
-        构建，并保留其 MIT 开源许可与来源说明。
-      </p>
-    </el-card>
   </div>
 </template>
 
@@ -104,20 +96,5 @@ const currentVersion = import.meta.env.appVersion || "0.1.0";
     }
   }
 
-  .attribution {
-    margin: 0;
-    color: var(--el-text-color-regular);
-    font-size: 13px;
-    line-height: 1.8;
-
-    a {
-      color: var(--el-color-primary);
-      text-decoration: none;
-
-      &:hover {
-        text-decoration: underline;
-      }
-    }
-  }
 }
 </style>

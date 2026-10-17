@@ -112,7 +112,7 @@ export default {
   apiUrl,
   modelsUrl: "https://api.toonflow.net/v1/models?type=video",
   protocol: "openai-completions",
-  readme: "## Toonflow 官方中转平台\n\n提供文本、图像、视频、音频等多模态模型服务。\n\n[前往中转平台](https://api.toonflow.net/)",
+  readme: "## 第三方模型服务\n\n提供文本、图像、视频、音频等多模态模型服务。\n\n[前往服务网站](https://api.toonflow.net/)",
   rules,
   models: [
     { id: "seed-audio-1.0", label: "Seed Audio 1.0", type: "audio" },

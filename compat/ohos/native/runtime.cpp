@@ -186,7 +186,7 @@ void monitorRuntime(std::shared_ptr<RuntimeState> state, int outputPipe) {
           waited < 0 ? "无法回收 Bun 进程：" + std::string(std::strerror(waitError)) :
           "Bun 已退出，" + (WIFEXITED(status) ? "退出码：" + std::to_string(WEXITSTATUS(status)) : "信号：" + std::to_string(WTERMSIG(status)));
       }
-      if (!state->stopping) OH_LOG_Print(LOG_APP, LOG_ERROR, 0, "ToonflowRuntime", "%{public}s\n%{public}s", state->error.c_str(), state->outputTail.c_str());
+      if (!state->stopping) OH_LOG_Print(LOG_APP, LOG_ERROR, 0, "MangosteenRuntime", "%{public}s\n%{public}s", state->error.c_str(), state->outputTail.c_str());
       state->condition.notify_all();
       break;
     }
@@ -199,7 +199,7 @@ void monitorRuntime(std::shared_ptr<RuntimeState> state, int outputPipe) {
     }
     state->error = "读取本地 Bun 服务输出失败：" + std::string(error.what());
     state->exited = true;
-    OH_LOG_Print(LOG_APP, LOG_ERROR, 0, "ToonflowRuntime", "%{public}s", state->error.c_str());
+    OH_LOG_Print(LOG_APP, LOG_ERROR, 0, "MangosteenRuntime", "%{public}s", state->error.c_str());
     state->condition.notify_all();
   }
   close(outputPipe);
@@ -233,7 +233,7 @@ void executeStart(napi_env, void *data) {
     }
     environment.push_back("TOONFLOW_MOBILE_DATA_DIR=" + state->dataDir);
     environment.push_back("TOONFLOW_PLATFORM=ohos");
-    environment.push_back("TOONFLOW_MOBILE_DEVICE_NAME=Toonflow HarmonyOS");
+    environment.push_back("TOONFLOW_MOBILE_DEVICE_NAME=山竹漫剧 HarmonyOS");
     environment.push_back("TMPDIR=" + state->cacheDir);
     environment.push_back("HOME=" + state->dataDir.substr(0, state->dataDir.find_last_of('/')));
     environment.push_back("SHELL=/system/bin/sh");

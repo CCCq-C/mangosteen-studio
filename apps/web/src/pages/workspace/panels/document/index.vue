@@ -673,7 +673,7 @@ defineExpose({ flushSave, cancelSave, getDocument, openDocument, writeDocument, 
   overflow: hidden;
   background: var(--el-bg-color);
   .documentLayout { width: 100%; height: 100%; border-top: 1px solid var(--el-border-color); }
-  .dockviewToonflow {
+  .dockviewMangosteen {
     --dv-background-color: var(--el-bg-color);
     --dv-group-view-background-color: var(--el-bg-color);
     --dv-tabs-and-actions-container-background-color: var(--el-fill-color-light);
