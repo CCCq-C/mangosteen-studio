@@ -84,7 +84,7 @@ export async function listMediaModels(): Promise<MediaModel[]> {
     } satisfies Pick<MediaModel, "providerId" | "providerLabel" | "groupId" | "groupLabel" | "groupRatio" | "modelId" | "label" | "type" | "supportsPrice" | "priceLabel" | "priceTips">;
     return [model.type === "image" ? {
       ...common,
-      mode: ["text"],
+      mode: ["text", "singleImage", "multiReference"],
       imageSizes: ["1024x1024"],
       imageRatios: ["1:1"],
     } : { ...common, ...aihubkitVideoCapabilities(model.id) }];
