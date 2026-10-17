@@ -201,6 +201,12 @@ export async function getAihubkitAccess() {
   };
 }
 
+export async function getAihubkitPricingSession() {
+  const session = await refreshStoredSession();
+  if (!session) throw new AihubkitServiceError(401, "登录已失效，请重新登录");
+  return { userId: session.userId, sessionCookie: session.sessionCookie };
+}
+
 export async function saveGroupApiKeys(userId: number, keys: Record<string, string>) {
   const session = await readStoredSession();
   if (!session || session.userId !== userId) throw new AihubkitServiceError(401, "登录已切换，请重新获取模型");
