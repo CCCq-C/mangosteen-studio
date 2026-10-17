@@ -3,26 +3,29 @@ import { getAihubkitAccess, saveGroupApiKeys } from "@/utils/aihubkit/account";
 
 export type AihubkitModelType = "image" | "video" | "language" | "unknown";
 
+export interface AihubkitCatalogGroup {
+  id: string;
+  label: string;
+  ratio: number;
+}
+
 export interface AihubkitCatalogModel {
   id: string;
   label: string;
   type: Exclude<AihubkitModelType, "unknown">;
-  groups: { id: string; label: string; ratio: number }[];
+  groups: AihubkitCatalogGroup[];
 }
 
 export interface AihubkitCatalog {
   revision: number;
   syncedAt: number;
+  groups: AihubkitCatalogGroup[];
   models: AihubkitCatalogModel[];
   unknownModelCount: number;
   partial: boolean;
 }
 
-interface GroupInfo {
-  id: string;
-  label: string;
-  ratio: number;
-}
+type GroupInfo = AihubkitCatalogGroup;
 
 interface GroupCatalog {
   info: GroupInfo;
@@ -132,6 +135,7 @@ function publicCatalog(state: CatalogState): AihubkitCatalog {
   return {
     revision: state.revision,
     syncedAt: state.syncedAt,
+    groups: state.groups.map(group => ({ ...group })),
     models: state.models.map(model => ({ ...model, groups: model.groups.map(group => ({ ...group })) })),
     unknownModelCount: state.unknownModelCount,
     partial: state.partial,
@@ -162,6 +166,7 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
     userId,
     revision: (currentCatalog?.userId === userId ? currentCatalog.revision : 0) + 1,
     syncedAt: Date.now(),
+    groups: [...groupCatalogs.values()].map(group => ({ ...group.info })),
     models: [...models.values()].sort((left, right) => left.type.localeCompare(right.type) || left.label.localeCompare(right.label)),
     unknownModelCount: unknownModels.size,
     partial,
