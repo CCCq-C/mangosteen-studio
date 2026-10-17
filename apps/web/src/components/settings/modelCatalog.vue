@@ -3,8 +3,7 @@
     <header class="catalogHeader">
       <div class="catalogHeading">
         <div class="catalogTitle">
-          <img :src="logoUrl" alt="" />
-          <strong>AIHubKit 动态模型</strong>
+          <strong>动态模型</strong>
           <el-tag size="small" type="success" effect="plain">当前账号</el-tag>
         </div>
         <el-text v-if="aihubkitCatalog" size="small" type="info">
@@ -62,7 +61,6 @@ import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { IconRefresh } from "@tabler/icons-vue";
 import { modelIcon } from "@toonflow/model-icons";
-import logoUrl from "@toonflow/assets/mangosteenAvatar.png";
 import {
   aihubkitCatalog,
   aihubkitCatalogError,
@@ -133,12 +131,6 @@ watch(() => props.visible, (visible) => {
         display: flex;
         align-items: center;
         gap: 8px;
-
-        img {
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-        }
       }
     }
   }

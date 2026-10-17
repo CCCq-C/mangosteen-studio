@@ -204,7 +204,7 @@ async function createVideo(context: ProviderContext, apiKey: string, body: Recor
 
 export default {
   id: "aiHubKit" as const,
-  label: "AIHubKit",
+  label: "账号模型",
   version,
   apiUrl,
   readme: "由山竹账号自动同步可用分组和模型，无需手工填写 API Key。",

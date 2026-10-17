@@ -102,7 +102,7 @@ export const languageModelGroups = computed<LanguageModelGroup[]>(() => {
   const dynamic = (catalog?.groups ?? []).flatMap(group => {
     const models = (catalog?.models ?? []).filter(model => model.type === "language" && model.groups.some(item => item.id === group.id))
       .map(model => ({ id: model.id, label: model.label }));
-    return models.length ? [{ id: aihubkitLanguageProviderId(group.id), label: `AIHubKit · ${group.label}`, models }] : [];
+    return models.length ? [{ id: aihubkitLanguageProviderId(group.id), label: group.label, models }] : [];
   });
   return [...dynamic, ...customProviders.value.map(provider => ({ id: provider.id, label: provider.label, models: provider.models }))];
 });

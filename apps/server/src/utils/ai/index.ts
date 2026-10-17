@@ -112,7 +112,7 @@ export async function listAiModels() {
     const limits = getModelLimits(providerId, model);
     return {
       providerId,
-      providerLabel: `AIHubKit · ${group.label}`,
+      providerLabel: group.label,
       protocol: "openai-completions" as const,
       modelId: model.id,
       label: model.label,
