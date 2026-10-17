@@ -228,21 +228,19 @@ export function summarizeAihubkitExpression(expression: string, ratio: number): 
     const next = evaluatedTier(tier, change);
     return next && Math.abs(next.amount - base.amount) > 1e-9;
   }));
-  const count = evaluated.length;
-  const suffix = count > 1 ? ` · ${count}档` : "";
   const ratioTip = `当前账号分组倍率 ${formatAmount(ratio)}×`;
   if (deferred) return {
-    label: `按 Token · 参考 ${formatAmount(minimum)}/${perSecond ? "秒" : "次"}起${suffix}`,
+    label: `按 Token · 参考 ${formatAmount(minimum)}/${perSecond ? "秒" : "次"}起`,
     tips: `按 Token 最终结算；生成前使用上游参考公式估算；${ratioTip}；最终以实际扣费为准。`,
     kind: "tokenEstimate",
   };
   if (perSecond) return {
-    label: `${formatAmount(minimum)}/秒起${suffix}`,
+    label: `${formatAmount(minimum)}/秒起`,
     tips: `按输出时长和所选清晰度计算${dynamic ? "，参考素材可能产生附加费用" : ""}；${ratioTip}；最终以实际扣费为准。`,
     kind: "perSecond",
   };
   return {
-    label: `${formatAmount(minimum)}/次起${suffix}`,
+    label: `${formatAmount(minimum)}/次起`,
     tips: `${dynamic ? "价格随参考素材变化" : "按次计费"}；${ratioTip}；最终以实际扣费为准。`,
     kind: dynamic ? "dynamic" : "fixed",
   };
