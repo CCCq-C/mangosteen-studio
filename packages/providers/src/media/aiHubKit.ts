@@ -1,6 +1,15 @@
 const apiUrl = "https://apimodel.aihubkit.com";
-const version = "0.1.0";
+const version = "0.2.0";
 const rules = [] as const;
+const maxReferenceImageSize = 100 * 1024 * 1024;
+const imageExtensions: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/bmp": "bmp",
+  "image/avif": "avif",
+};
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -15,6 +24,88 @@ function apiKeys(config: Record<string, unknown>) {
     .filter(([name, value]) => /^apiKey\d+$/.test(name) && typeof value === "string" && value.trim())
     .sort(([left], [right]) => Number(left.slice(6)) - Number(right.slice(6)))
     .map(([, value]) => (value as string).trim().replace(/^Bearer\s+/i, "").trim());
+}
+
+function normalizedImageMimeType(value: unknown) {
+  const mimeType = text(value).split(";", 1)[0]!.toLowerCase();
+  return mimeType.startsWith("image/") ? mimeType : "";
+}
+
+function imageMimeTypeFromUrl(value: string) {
+  let pathname = value;
+  try { pathname = new URL(value).pathname; }
+  catch { return ""; }
+  const extension = /\.([a-zA-Z0-9]+)$/.exec(pathname)?.[1]?.toLowerCase();
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension && ["png", "webp", "gif", "bmp", "avif"].includes(extension)) return `image/${extension}`;
+  return "";
+}
+
+function checkedImageBytes(data: Uint8Array) {
+  if (!data.byteLength) throw new Error("参考图不能为空");
+  if (data.byteLength > maxReferenceImageSize) throw new Error("单张参考图不能超过 100 MB");
+  return data;
+}
+
+function decodeBase64Image(input: Extract<MediaInput, { type: "base64" }>) {
+  const source = input.data.trim();
+  const embedded = /^data:([^;,]+)(?:;[^,]*)?;base64,([\s\S]+)$/i.exec(source);
+  if (source.startsWith("data:") && !embedded) throw new Error("参考图的 Data URL 无效");
+  const encoded = (embedded?.[2] ?? source).replace(/\s/g, "");
+  if (!encoded || encoded.length > Math.ceil(maxReferenceImageSize / 3) * 4 + 4
+    || !/^[a-zA-Z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
+    throw new Error("参考图的 Base64 数据无效或超过 100 MB");
+  }
+  const mimeType = normalizedImageMimeType(input.mimeType) || normalizedImageMimeType(embedded?.[1]);
+  if (!mimeType) throw new Error("参考图必须提供有效的图片类型");
+  return { bytes: checkedImageBytes(new Uint8Array(Buffer.from(encoded, "base64"))), mimeType };
+}
+
+async function imageUpload(context: ProviderContext, input: MediaInput, index: number) {
+  let bytes: Uint8Array;
+  let mimeType: string;
+  if (input.type === "base64") ({ bytes, mimeType } = decodeBase64Image(input));
+  else if (input.type === "binary") {
+    bytes = checkedImageBytes(new Uint8Array(input.data));
+    mimeType = normalizedImageMimeType(input.mimeType);
+    if (!mimeType) throw new Error("参考图必须提供有效的图片类型");
+  } else {
+    let url: URL;
+    try { url = new URL(input.url); }
+    catch { throw new Error("参考图地址无效，只支持 HTTP 或 HTTPS 地址"); }
+    if (!/^https?:$/.test(url.protocol)) throw new Error("参考图地址无效，只支持 HTTP 或 HTTPS 地址");
+    const response = await context.tool.fetch(url, { signal: context.signal });
+    if (!response.ok) throw new Error(`读取参考图失败（HTTP ${response.status}）`);
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxReferenceImageSize) {
+      await response.body?.cancel();
+      throw new Error("单张参考图不能超过 100 MB");
+    }
+    bytes = checkedImageBytes(new Uint8Array(await response.arrayBuffer()));
+    const responseMimeType = normalizedImageMimeType(response.headers.get("content-type"));
+    mimeType = normalizedImageMimeType(input.mimeType) || responseMimeType || imageMimeTypeFromUrl(input.url);
+    if (!mimeType) throw new Error("下载的参考素材不是可识别的图片");
+  }
+  const extension = imageExtensions[mimeType] ?? "img";
+  return { blob: new Blob([bytes], { type: mimeType }), filename: `reference-${index + 1}.${extension}` };
+}
+
+type ImageUploads = { images: Awaited<ReturnType<typeof imageUpload>>[]; mask?: Awaited<ReturnType<typeof imageUpload>> };
+
+async function prepareImageUploads(context: ProviderContext, request: ImageRequest): Promise<ImageUploads> {
+  const images = await Promise.all((request.images ?? []).map((input, index) => imageUpload(context, input, index)));
+  const mask = request.mask ? await imageUpload(context, request.mask, images.length) : undefined;
+  return { images, mask };
+}
+
+function imageEditBody(request: ImageRequest, uploads: ImageUploads) {
+  const body = new FormData();
+  body.append("model", request.model);
+  body.append("prompt", request.prompt.trim());
+  if (request.size?.trim()) body.append("size", request.size.trim());
+  for (const image of uploads.images) body.append("image", image.blob, image.filename);
+  if (uploads.mask) body.append("mask", uploads.mask.blob, `mask.${uploads.mask.filename.split(".").pop()}`);
+  return body;
 }
 
 function taskId(value: unknown) {
@@ -110,7 +201,7 @@ async function fetchJson(context: ProviderContext, apiKey: string, path: string,
   let payload: unknown;
   try { payload = await response.json(); }
   catch {
-    if (!response.ok) throw new Error(`AIHubKit 请求失败（HTTP ${response.status}）`);
+    if (!response.ok) return { response, payload: {} };
     throw new Error("AIHubKit 返回了无法识别的响应");
   }
   return { response, payload };
@@ -125,24 +216,7 @@ function unavailableChannel(error: unknown) {
   return /(?:no\s+available\s+channel|无可用渠道|没有可用渠道|暂无可用渠道)/i.test(message);
 }
 
-async function createImage(context: ProviderContext, apiKey: string, body: Record<string, unknown>) {
-  const created = await fetchJson(context, apiKey, "/v1/images/generations/tasks", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (created.response.status === 404 || created.response.status === 405) {
-    const synchronous = await fetchJson(context, apiKey, "/v1/images/generations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!synchronous.response.ok) throw requestError(context, synchronous.payload, synchronous.response.status);
-    const assets = imageAssets(synchronous.payload);
-    if (!assets.length) throw new Error("AIHubKit 同步生图未返回图片");
-    return assets;
-  }
-
+async function resolveImageTask(context: ProviderContext, apiKey: string, created: { response: Response; payload: unknown }) {
   if (!created.response.ok) throw requestError(context, created.payload, created.response.status);
   const createdData = object(created.payload);
   const createdNested = object(createdData.data);
@@ -171,6 +245,44 @@ async function createImage(context: ProviderContext, apiKey: string, body: Recor
       throw new Error("AIHubKit 图片任务已完成，但没有返回图片");
     }
   }
+}
+
+async function createImage(context: ProviderContext, apiKey: string, body: Record<string, unknown>) {
+  const created = await fetchJson(context, apiKey, "/v1/images/generations/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (created.response.status === 404 || created.response.status === 405) {
+    const synchronous = await fetchJson(context, apiKey, "/v1/images/generations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!synchronous.response.ok) throw requestError(context, synchronous.payload, synchronous.response.status);
+    const assets = imageAssets(synchronous.payload);
+    if (!assets.length) throw new Error("AIHubKit 同步生图未返回图片");
+    return assets;
+  }
+  return resolveImageTask(context, apiKey, created);
+}
+
+async function createImageEdit(context: ProviderContext, apiKey: string, request: ImageRequest, uploads: ImageUploads) {
+  const created = await fetchJson(context, apiKey, "/v1/images/edits/tasks", {
+    method: "POST",
+    body: imageEditBody(request, uploads),
+  });
+  if (created.response.status === 404 || created.response.status === 405) {
+    const synchronous = await fetchJson(context, apiKey, "/v1/images/edits", {
+      method: "POST",
+      body: imageEditBody(request, uploads),
+    });
+    if (!synchronous.response.ok) throw requestError(context, synchronous.payload, synchronous.response.status);
+    const assets = imageAssets(synchronous.payload);
+    if (!assets.length) throw new Error("AIHubKit 同步图生图未返回图片");
+    return assets;
+  }
+  return resolveImageTask(context, apiKey, created);
 }
 
 async function createVideo(context: ProviderContext, apiKey: string, body: Record<string, unknown>) {
@@ -212,7 +324,7 @@ export default {
   models: [] satisfies ProviderModel[],
   async generateImage(this: ProviderContext, request: ImageRequest): Promise<MediaAsset[]> {
     if (!request.prompt.trim()) throw new Error("请输入图片生成提示词");
-    if (request.images?.length) throw new Error("当前版本先支持文生图，图生图将在下一批接入");
+    if (request.mask && !request.images?.length) throw new Error("遮罩必须和至少一张参考图一起使用");
     const keys = apiKeys(this.config);
     if (!keys.length) throw new Error("没有找到当前模型的 AIHubKit 授权，请刷新模型后重试");
     const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(this.signal ? [this.signal] : [])]);
@@ -223,9 +335,10 @@ export default {
       n: Math.max(1, Math.min(7, Math.floor(request.n ?? 1))),
       ...(request.size?.trim() ? { size: request.size.trim() } : {}),
     };
+    const uploads = request.images?.length ? await prepareImageUploads(context, request) : undefined;
     let lastError: unknown;
     for (const key of keys) {
-      try { return await createImage(context, key, body); }
+      try { return uploads ? await createImageEdit(context, key, request, uploads) : await createImage(context, key, body); }
       catch (error) {
         lastError = error;
         if (!unavailableChannel(error)) throw error;
