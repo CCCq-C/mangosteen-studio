@@ -36,10 +36,13 @@ function imageItems(value: unknown) {
   const nested = object(data.data);
   const result = object(data.result);
   const nestedResult = object(nested.result);
+  const output = object(data.output);
+  const nestedOutput = object(nested.output);
   return [
     data.data, data.images, data.result, data.output,
     nested.data, nested.images, nested.result, nested.output,
     result.data, result.images, nestedResult.data, nestedResult.images,
+    output.data, output.images, nestedOutput.data, nestedOutput.images,
   ].find(Array.isArray) as unknown[] | undefined;
 }
 
