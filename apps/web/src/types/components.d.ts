@@ -115,6 +115,7 @@ declare module 'vue' {
     ToolMessage: typeof import('./../components/agent/toolMessage.vue')['default']
     Ui: typeof import('./../components/settings/panels/ui.vue')['default']
     UpdateBox: typeof import('./../components/updateBox.vue')['default']
+    UsageLogs: typeof import('./../components/settings/panels/usageLogs.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

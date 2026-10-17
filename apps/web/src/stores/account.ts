@@ -1,6 +1,7 @@
 import axios from "axios";
 import { defineStore } from "pinia";
 import { ref } from "vue";
+import { clearAihubkitUsage } from "@/lib/aihubkitUsage";
 
 export interface PublicAccount {
   id: number;
@@ -67,6 +68,7 @@ export const useAccountStore = defineStore("account", () => {
   let restoring: Promise<void> | undefined;
 
   function applySession(session: SessionResult) {
+    clearAihubkitUsage();
     user.value = session.user;
     status.value = session.authenticated ? "authenticated" : "unauthenticated";
   }

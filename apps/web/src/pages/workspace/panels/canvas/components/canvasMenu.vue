@@ -40,20 +40,11 @@
     <div class="menuExtension"><slot /></div>
   </panel>
   <panel class="balanceMenuPanel" position="top-right">
-    <div class="balanceList" tabindex="0" aria-label="供应商余额">
-      <el-card v-for="item in providerBalances" :key="item.id" class="balanceCard" shadow="never" :bodyStyle="{ padding: '3px 6px' }">
-        <el-popover v-if="item.id === 'tfRouter'" :visible="balanceVisible" @update:visible="value => { if (!rechargeVisible) balanceVisible = value; }" trigger="click" placement="bottom-end" :width="360" :showArrow="false">
-          <template #reference>
-            <el-button class="balanceTrigger" text :aria-busy="item.loading" :title="item.error || 'TF-Router 剩余可用余额'" aria-label="TF-Router 余额与充值">
-              <span class="providerLabel">{{ item.label }}</span>
-              <span>{{ item.balance ? `${balanceFormat.format(Math.min(item.balance.balance, item.balance.keyBalance ?? Infinity))} ${item.balance.unit}` : '—' }}</span>
-            </el-button>
-          </template>
-          <tfAccount v-if="balanceVisible" :apiKey="tfBalanceApiKey" :visible="balanceVisible" :saveApiKey="saveTfMediaApiKey" @rechargeVisibleChange="rechargeVisible = $event" />
-        </el-popover>
-        <el-button v-else class="balanceTrigger" text :loading="item.loading" :title="item.error || `点击刷新 ${item.label} 余额`" :aria-label="`刷新 ${item.label} 余额`" @click="refreshProviderBalance(item.id)">
-          <span class="providerLabel">{{ item.label }}</span>
-          <span>{{ item.balance ? `${balanceFormat.format(Math.min(item.balance.balance, item.balance.keyBalance ?? Infinity))} ${item.balance.unit}` : '—' }}</span>
+    <div class="balanceList" tabindex="0" aria-label="账户余额">
+      <el-card class="balanceCard" shadow="never" :bodyStyle="{ padding: '3px 6px' }">
+        <el-button class="balanceTrigger" text :loading="aihubkitBalanceLoading" :aria-busy="aihubkitBalanceLoading" :title="aihubkitBalanceError || '点击刷新账户余额'" aria-label="刷新账户余额" @click="refreshBalance(true)">
+          <span class="providerLabel">余额</span>
+          <span>{{ aihubkitBalance ? `${balanceFormat.format(aihubkitBalance.amount)} ${aihubkitBalance.unit}` : "—" }}</span>
         </el-button>
       </el-card>
     </div>
@@ -82,15 +73,14 @@
 <script setup lang="ts">
 import axios from "axios";
 import { locale, translate } from "@toonflow/i18n/vue";
-import { computed, inject, nextTick, onBeforeUnmount, ref, shallowRef, watch, type ShallowRef } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch, type ShallowRef } from "vue";
 import { Panel, useVueFlow, type FlowExportObject } from "@vue-flow/core";
 import { ElMessage, ElMessageBox, type DropdownInstance, type FilterNodeMethodFunction, type InputInstance, type LoadFunction, type TreeInstance } from "element-plus";
 import { IconVector, IconCheck, IconChevronDown, IconChevronUp, IconChevronRight, IconDots, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconSearch } from "@tabler/icons-vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 import { getCanvasAssetDirectories, isCanvasFile } from "@/pages/workspace/canvasFile";
-import tfAccount from "@/components/settings/tfAccount.vue";
-import { providerBalances, tfBalanceApiKey, saveTfMediaApiKey, refreshProviderBalance } from "@/lib/providerBilling";
+import { aihubkitBalance, aihubkitBalanceError, aihubkitBalanceLoading, loadAihubkitBalance } from "@/lib/aihubkitUsage";
 
 const props = defineProps<{
   directory?: string;
@@ -99,11 +89,18 @@ const props = defineProps<{
   flushSave: (action?: () => Promise<void>) => Promise<void>;
 }>();
 const workspaceStore = useWorkspaceStore();
-const balanceVisible = ref(false);
-const rechargeVisible = ref(false);
 const balanceFormat = computed(() => new Intl.NumberFormat(locale.value, { maximumFractionDigits: 6 }));
 const workspaceName = computed(() => workspaceStore.project?.name || "未命名工作区");
 const projectNameDraft = ref("");
+
+function refreshBalance(notify = false) {
+  void loadAihubkitBalance().catch(() => {
+    if (notify) ElMessage.error(aihubkitBalanceError.value || "账户余额读取失败，请重试");
+  });
+}
+
+onMounted(() => refreshBalance());
+
 watch([() => workspaceStore.project?.directory, workspaceName], () => {
   projectNameDraft.value = workspaceName.value;
 }, { immediate: true });
