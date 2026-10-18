@@ -276,6 +276,17 @@ function displayTiers(ast: AstNode, resolutions: string[], ratio: number, kind: 
   }).slice(0, 30);
 }
 
+function displayedMinimum(ast: AstNode, resolutions: string[], ratio: number) {
+  const candidates = resolutions.length ? resolutions : [""];
+  const amounts = candidates.flatMap(resolution => {
+    const value = evaluateNode(ast, { ...emptyAihubkitPricingDimensions, seconds: 1, resolutionTier: resolution });
+    return object(value) && typeof (value as AihubkitExpressionPrice).amount === "number"
+      ? [(value as AihubkitExpressionPrice).amount * ratio]
+      : [];
+  });
+  return amounts.length ? Math.min(...amounts) : undefined;
+}
+
 export function evaluateAihubkitExpression(expression: string, dimensions: AihubkitPricingDimensions): AihubkitExpressionPrice | null {
   const ast = parse(expression);
   if (!ast) return null;
@@ -294,7 +305,7 @@ export function summarizeAihubkitExpression(expression: string, ratio: number, m
     return base ? [{ tier, base }] : [];
   });
   if (!evaluated.length) return null;
-  const minimum = Math.min(...evaluated.map(value => value.base.amount)) * ratio;
+  const fallbackMinimum = Math.min(...evaluated.map(value => value.base.amount)) * ratio;
   const deferred = evaluated.some(value => value.base.deferred);
   const perSecond = evaluated.some(({ tier, base }) => changedAmount(tier, base, { seconds: 2 }) !== 0);
   const inputAudio = evaluated.map(({ tier, base }) => changedAmount(tier, base, { inputAudioSeconds: 1 })).filter(value => value > 0);
@@ -315,6 +326,7 @@ export function summarizeAihubkitExpression(expression: string, ratio: number, m
         : dynamic ? "dynamic" : "fixed";
   const resolutions = pricingResolutions(ast, tiers);
   const display = displayTiers(ast, resolutions, ratio, kind, mediaType, perSecond, inputAudioRate);
+  const minimum = displayedMinimum(ast, resolutions, ratio) ?? fallbackMinimum;
   const ratioTip = `当前账号分组倍率 ${formatAmount(ratio)}×`;
   if (deferred) return {
     label: `按 Token · 参考 ${formatAmount(minimum)}/${perSecond ? "秒" : "次"}起`,
