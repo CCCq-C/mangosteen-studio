@@ -38,6 +38,10 @@ export interface AihubkitUsageLogPage {
   items: AihubkitUsageLog[];
 }
 
+export interface AihubkitTopupResult {
+  redeemedAt: number;
+}
+
 type ApiResponse<T> = { code: number; data: T | null; message: string };
 
 const client = axios.create({
@@ -116,6 +120,13 @@ function usageLogPage(value: unknown): AihubkitUsageLogPage {
   return data as AihubkitUsageLogPage;
 }
 
+function topupResult(value: unknown): AihubkitTopupResult {
+  if (!value || typeof value !== "object") throw new Error("兑换结果返回格式不正确");
+  const data = value as Partial<AihubkitTopupResult>;
+  if (!safeInteger(data.redeemedAt) || data.redeemedAt === 0) throw new Error("兑换结果返回格式不正确");
+  return data as AihubkitTopupResult;
+}
+
 export const aihubkitBalance = readonly(balance);
 export const aihubkitBalanceLoading = readonly(balanceLoading);
 export const aihubkitBalanceError = readonly(balanceError);
@@ -142,6 +153,20 @@ export function loadAihubkitBalance() {
     });
   balanceRequest = request;
   return request;
+}
+
+export async function refreshAihubkitBalance() {
+  const pending = balanceRequest;
+  if (pending) await pending.catch(() => {});
+  return loadAihubkitBalance();
+}
+
+export async function redeemAihubkitCode(key: string) {
+  try {
+    return topupResult(await post<AihubkitTopupResult>("/topup", { key: key.trim() }));
+  } catch (cause) {
+    throw new Error(requestError(cause, "兑换码充值失败，请检查兑换码后重试"));
+  }
 }
 
 export async function loadAihubkitUsageLogs(query: AihubkitUsageLogQuery) {

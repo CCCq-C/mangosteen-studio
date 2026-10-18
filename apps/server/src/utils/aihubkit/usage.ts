@@ -38,6 +38,10 @@ export interface AihubkitUsageLogPage {
   items: AihubkitUsageLog[];
 }
 
+export interface AihubkitTopupResult {
+  redeemedAt: number;
+}
+
 const quotaPerUnit = 500_000;
 
 function object(value: unknown) {
@@ -133,6 +137,34 @@ export async function getAihubkitBalance(): Promise<AihubkitBalance> {
     unit: "额度",
     updatedAt: Date.now(),
   };
+}
+
+export async function redeemAihubkitCode(key: string): Promise<AihubkitTopupResult> {
+  const access = await getAihubkitAccess();
+  try {
+    await requestAihubkitEnvelope("/api/user/topup", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${access.accessToken}`,
+        "Content-Type": "application/json",
+        "New-Api-User": String(access.userId),
+      },
+      body: JSON.stringify({ key: key.trim() }),
+    }, 400);
+  } catch (cause) {
+    if (!(cause instanceof AihubkitServiceError)) throw cause;
+    if (cause.status === 401) throw new AihubkitServiceError(401, "登录已失效，请重新登录后再兑换");
+    if (cause.status === 429) throw new AihubkitServiceError(429, "兑换请求过于频繁，请稍后再试");
+    if (cause.status >= 500) {
+      throw new AihubkitServiceError(cause.status, "兑换结果暂时无法确认，请先刷新余额，不要立即重复提交兑换码");
+    }
+    if (!/[\u3400-\u9fff]/u.test(cause.message)) {
+      throw new AihubkitServiceError(cause.status, "兑换码无效、已使用或已过期，请检查后重试");
+    }
+    throw cause;
+  }
+  // ACT: 上游 data 的单位没有文档保证；成功后只返回时间，余额由独立查询接口刷新。
+  return { redeemedAt: Date.now() };
 }
 
 export async function getAihubkitUsageLogs(query: AihubkitUsageLogQuery): Promise<AihubkitUsageLogPage> {

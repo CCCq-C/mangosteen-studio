@@ -42,13 +42,18 @@
   <panel class="balanceMenuPanel" position="top-right">
     <div class="balanceList" tabindex="0" aria-label="账户余额">
       <el-card class="balanceCard" shadow="never" :bodyStyle="{ padding: '3px 6px' }">
-        <el-button class="balanceTrigger" text :loading="aihubkitBalanceLoading" :aria-busy="aihubkitBalanceLoading" :title="aihubkitBalanceError || '点击刷新账户余额'" aria-label="刷新账户余额" @click="refreshBalance(true)">
-          <span class="providerLabel">余额</span>
-          <span>{{ aihubkitBalance ? `${balanceFormat.format(aihubkitBalance.amount)} ${aihubkitBalance.unit}` : "—" }}</span>
-        </el-button>
+        <div class="balanceActions">
+          <el-button class="balanceTrigger" text :loading="aihubkitBalanceLoading" :aria-busy="aihubkitBalanceLoading" :title="aihubkitBalanceError || '点击刷新账户余额'" aria-label="刷新账户余额" @click="refreshBalance(true)">
+            <span class="providerLabel">余额</span>
+            <span>{{ aihubkitBalance ? `${balanceFormat.format(aihubkitBalance.amount)} ${aihubkitBalance.unit}` : "—" }}</span>
+          </el-button>
+          <el-divider direction="vertical" />
+          <el-button class="topupTrigger" text :icon="IconTicket" @click="topupVisible = true">兑换码充值</el-button>
+        </div>
       </el-card>
     </div>
   </panel>
+  <accountTopupDialog v-model="topupVisible" @redeemed="handleTopupRedeemed" />
   <el-dropdown ref="itemMenu" trigger="contextmenu" virtualTriggering :virtualRef="menuAnchor" placement="bottom-start" :showArrow="false" :hideOnClick="false" :appendTo="canvasPicker" popperClass="canvasActionMenu" @command="handleItemCommand" @visibleChange="(opened: boolean) => { if (!opened) moveVisible = false; }">
     <template #dropdown>
       <el-dropdown-menu v-if="menuEntry">
@@ -76,11 +81,12 @@ import { locale, translate } from "@toonflow/i18n/vue";
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch, type ShallowRef } from "vue";
 import { Panel, useVueFlow, type FlowExportObject } from "@vue-flow/core";
 import { ElMessage, ElMessageBox, type DropdownInstance, type FilterNodeMethodFunction, type InputInstance, type LoadFunction, type TreeInstance } from "element-plus";
-import { IconVector, IconCheck, IconChevronDown, IconChevronUp, IconChevronRight, IconDots, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconSearch } from "@tabler/icons-vue";
+import { IconVector, IconCheck, IconChevronDown, IconChevronUp, IconChevronRight, IconDots, IconFolder, IconFolderOpen, IconFolderPlus, IconPlus, IconSearch, IconTicket } from "@tabler/icons-vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 import { getCanvasAssetDirectories, isCanvasFile } from "@/pages/workspace/canvasFile";
-import { aihubkitBalance, aihubkitBalanceError, aihubkitBalanceLoading, loadAihubkitBalance } from "@/lib/aihubkitUsage";
+import { aihubkitBalance, aihubkitBalanceError, aihubkitBalanceLoading, loadAihubkitBalance, refreshAihubkitBalance } from "@/lib/aihubkitUsage";
+import accountTopupDialog from "./accountTopupDialog.vue";
 
 const props = defineProps<{
   directory?: string;
@@ -92,11 +98,21 @@ const workspaceStore = useWorkspaceStore();
 const balanceFormat = computed(() => new Intl.NumberFormat(locale.value, { maximumFractionDigits: 6 }));
 const workspaceName = computed(() => workspaceStore.project?.name || "未命名工作区");
 const projectNameDraft = ref("");
+const topupVisible = ref(false);
 
 function refreshBalance(notify = false) {
   void loadAihubkitBalance().catch(() => {
     if (notify) ElMessage.error(aihubkitBalanceError.value || "账户余额读取失败，请重试");
   });
+}
+
+async function handleTopupRedeemed() {
+  ElMessage.success("兑换成功");
+  try {
+    await refreshAihubkitBalance();
+  } catch {
+    ElMessage.warning("兑换成功，但余额刷新失败，请点击余额手动刷新");
+  }
 }
 
 onMounted(() => refreshBalance());
@@ -830,7 +846,8 @@ defineExpose({ getCanvases, peekCanvases, initialized, addCanvas, switchCanvas, 
       flex-shrink: 0;
       font-variant-numeric: tabular-nums;
       .providerLabel { color: var(--el-text-color-secondary); font-size: 12px; }
-      .balanceTrigger {
+      .balanceActions { display: flex; align-items: center; }
+      .balanceTrigger, .topupTrigger {
         height: 32px;
         padding: 0 4px;
         font-size: 13px;
