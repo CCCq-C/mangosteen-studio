@@ -2,6 +2,7 @@ import axios from "axios";
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { clearAihubkitUsage } from "@/lib/aihubkitUsage";
+import { clearAihubkitCatalogState, startAihubkitCatalogSync } from "@/lib/aihubkitCatalog";
 
 export interface PublicAccount {
   id: number;
@@ -14,10 +15,7 @@ interface ApiResponse<T> {
   message: string;
 }
 
-interface SessionResult {
-  authenticated: boolean;
-  user: PublicAccount | null;
-}
+type SessionResult = { authenticated: true; user: PublicAccount } | { authenticated: false; user: null };
 
 const client = axios.create({
   baseURL: "/api/desktop/account",
@@ -69,8 +67,16 @@ export const useAccountStore = defineStore("account", () => {
 
   function applySession(session: SessionResult) {
     clearAihubkitUsage();
+    if (!session.authenticated) {
+      clearAihubkitCatalogState();
+      user.value = null;
+      status.value = "unauthenticated";
+      return;
+    }
+    if (user.value?.id !== session.user.id) clearAihubkitCatalogState();
     user.value = session.user;
-    status.value = session.authenticated ? "authenticated" : "unauthenticated";
+    status.value = "authenticated";
+    startAihubkitCatalogSync();
   }
 
   function restore() {
