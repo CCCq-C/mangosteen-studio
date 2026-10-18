@@ -21,6 +21,11 @@ export interface AihubkitCatalogModel {
   id: string;
   label: string;
   type: Exclude<AihubkitModelType, "unknown">;
+  description?: string;
+  icon?: string;
+  vendor?: { id: number; name: string; icon?: string };
+  tags: string[];
+  supportedEndpointTypes: string[];
   groups: AihubkitCatalogGroup[];
 }
 
@@ -32,6 +37,7 @@ export interface AihubkitCatalog {
   unknownModelCount: number;
   partial: boolean;
   pricingAvailable: boolean;
+  pricingStale: boolean;
   pricingVersion?: string;
   pricingSyncedAt?: number;
 }
@@ -149,11 +155,18 @@ function publicCatalog(state: CatalogState): AihubkitCatalog {
     groups: state.groups.map(group => ({ ...group })),
     models: state.models.map(model => ({
       ...model,
-      groups: model.groups.map(group => ({ ...group, ...(group.price ? { price: { ...group.price } } : {}) })),
+      tags: [...model.tags],
+      supportedEndpointTypes: [...model.supportedEndpointTypes],
+      ...(model.vendor ? { vendor: { ...model.vendor } } : {}),
+      groups: model.groups.map(group => ({
+        ...group,
+        ...(group.price ? { price: { ...group.price, tiers: group.price.tiers.map(tier => ({ ...tier })) } } : {}),
+      })),
     })),
     unknownModelCount: state.unknownModelCount,
     partial: state.partial,
     pricingAvailable: state.pricingAvailable,
+    pricingStale: state.pricingStale,
     ...(state.pricingVersion ? { pricingVersion: state.pricingVersion } : {}),
     ...(state.pricingSyncedAt ? { pricingSyncedAt: state.pricingSyncedAt } : {}),
   };
@@ -171,9 +184,25 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
         continue;
       }
       const key = `${type}\u0000${id}`;
-      const model = models.get(key) ?? { id, label: id, type, groups: [] };
-      const pricingRatio = pricing?.models.get(id)?.salesRatios[group.info.id] ?? pricing?.groupRatios[group.info.id];
-      const relation = pricingRatio === undefined ? group.info : { ...group.info, ratio: pricingRatio };
+      const pricingModel = pricing?.models.get(id);
+      const model = models.get(key) ?? {
+        id,
+        label: id,
+        type,
+        ...(pricingModel?.description ? { description: pricingModel.description } : {}),
+        ...(pricingModel?.icon ? { icon: pricingModel.icon } : {}),
+        ...(pricingModel?.vendor ? { vendor: { ...pricingModel.vendor } } : {}),
+        tags: [...(pricingModel?.tags ?? [])],
+        supportedEndpointTypes: [...(pricingModel?.supportedEndpointTypes ?? [])],
+        groups: [],
+      };
+      const pricingRatio = pricingModel?.salesRatios[group.info.id] ?? pricing?.groupRatios[group.info.id];
+      const pricingLabel = pricing?.groupLabels[group.info.id];
+      const relation = {
+        ...group.info,
+        ...(pricingLabel ? { label: pricingLabel } : {}),
+        ...(pricingRatio === undefined ? {} : { ratio: pricingRatio }),
+      };
       const price = pricing && getAihubkitPriceSummary(pricing, id, group.info.id);
       model.groups.push({ ...relation, ...(price ? { price } : {}) });
       models.set(key, model);
@@ -188,12 +217,14 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
     syncedAt: Date.now(),
     groups: [...groupCatalogs.values()].map(group => ({
       ...group.info,
+      ...(pricing?.groupLabels[group.info.id] ? { label: pricing.groupLabels[group.info.id] } : {}),
       ratio: pricing?.groupRatios[group.info.id] ?? group.info.ratio,
     })),
     models: [...models.values()].sort((left, right) => left.type.localeCompare(right.type) || left.label.localeCompare(right.label)),
     unknownModelCount: unknownModels.size,
     partial,
     pricingAvailable: Boolean(pricing),
+    pricingStale: Boolean(pricing && Date.now() - pricing.syncedAt >= catalogMaxAge),
     ...(pricing ? { pricingVersion: pricing.pricingVersion, pricingSyncedAt: pricing.syncedAt } : {}),
     groupCatalogs,
     candidates,
@@ -210,6 +241,9 @@ function scheduleRefresh() {
 
 async function synchronizeCatalog(epoch: number, forcePricing = false) {
   const access = await getAihubkitAccess();
+  const pricingRequest = getAihubkitPricing(forcePricing).catch(() => forcePricing
+    ? getAihubkitPricing().catch(() => undefined)
+    : undefined);
   const { envelope } = await requestAihubkitEnvelope("/api/user/self/groups", {
     headers: {
       Authorization: `Bearer ${access.accessToken}`,
@@ -257,12 +291,7 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
   if (JSON.stringify(keys) !== JSON.stringify(access.groupApiKeys)) await saveGroupApiKeys(access.userId, keys);
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
-  let pricing: AihubkitPricingSnapshot | undefined;
-  try {
-    pricing = await getAihubkitPricing(forcePricing);
-  } catch {
-    if (forcePricing) pricing = await getAihubkitPricing().catch(() => undefined);
-  }
+  const pricing: AihubkitPricingSnapshot | undefined = await pricingRequest;
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
   currentCatalog = buildCatalog(access.userId, next, partial, pricing);
   scheduleRefresh();
