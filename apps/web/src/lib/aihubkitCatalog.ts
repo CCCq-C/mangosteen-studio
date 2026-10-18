@@ -117,7 +117,9 @@ export function stopAihubkitCatalogSync() {
 
 export function startAihubkitCatalogSync() {
   stopAihubkitCatalogSync();
-  void loadAihubkitCatalog().catch(() => {});
+  // Every restored or newly-created session gets one live account-specific refresh.
+  // The persisted snapshot remains available on the server as the failure fallback.
+  void loadAihubkitCatalog(true).catch(() => {});
   syncTimer = setInterval(() => {
     void loadAihubkitCatalog(true).catch(() => {});
   }, catalogRefreshInterval);
