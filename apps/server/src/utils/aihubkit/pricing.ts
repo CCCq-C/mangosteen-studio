@@ -22,7 +22,9 @@ import {
 export interface AihubkitPriceSummary {
   label: string;
   tips: string;
-  kind: "fixed" | "perSecond" | "tokenEstimate" | "dynamic";
+  kind: "fixed" | "perSecond" | "tokenEstimate" | "inputAudioSecond" | "dynamic";
+  billingLabel: string;
+  tiers: { name: string; label: string }[];
   pricingVersion: string;
 }
 
@@ -54,15 +56,18 @@ export function getAihubkitPriceSummary(snapshot: AihubkitPricingCatalogSnapshot
   const observed = actualTip(snapshot, modelId, groupId);
   if (model.billingMode === "legacy") {
     if (model.quotaType !== 1) return;
+    const unit = model.mediaType === "image" ? "张" : "条";
     return {
-      label: `${amount(model.modelPrice * groupRatio)}/次`,
-      tips: `按张计费；当前账号分组倍率 ${amount(groupRatio)}×；${observed || "最终以实际扣费为准。"}`,
+      label: `${amount(model.modelPrice * groupRatio)}/${unit}`,
+      tips: `按${unit}计费；当前账号分组倍率 ${amount(groupRatio)}×；${observed || "最终以实际扣费为准。"}`,
       kind: "fixed",
+      billingLabel: `按${unit}`,
+      tiers: [{ name: "默认", label: `${amount(model.modelPrice * groupRatio)}/${unit}` }],
       pricingVersion: model.pricingVersion,
     };
   }
   if (!model.billingExpression) return;
-  const summary = summarizeAihubkitExpression(model.billingExpression, groupRatio);
+  const summary = summarizeAihubkitExpression(model.billingExpression, groupRatio, model.mediaType);
   return summary ? {
     ...summary,
     tips: `${summary.tips}${observed ? ` ${observed}` : ""}`,

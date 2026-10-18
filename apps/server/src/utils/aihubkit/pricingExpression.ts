@@ -23,7 +23,14 @@ export interface AihubkitExpressionPrice {
 export interface AihubkitExpressionSummary {
   label: string;
   tips: string;
-  kind: "fixed" | "perSecond" | "tokenEstimate" | "dynamic";
+  kind: "fixed" | "perSecond" | "tokenEstimate" | "inputAudioSecond" | "dynamic";
+  billingLabel: string;
+  tiers: AihubkitExpressionTier[];
+}
+
+export interface AihubkitExpressionTier {
+  name: string;
+  label: string;
 }
 
 type AstNode = Record<string, unknown>;
@@ -191,6 +198,44 @@ function tierCalls(node: AstNode, result: AstNode[] = [], depth = 0) {
   return result;
 }
 
+function resolutionValues(node: AstNode, result = new Set<string>(), depth = 0) {
+  if (depth > maxDepth) return result;
+  if (node.type === "BinaryExpression" && ["==", "==="].includes(String(node.operator))) {
+    const left = object(node.left);
+    const right = object(node.right);
+    const pair = left?.type === "Identifier" && left.name === "resolution_tier" && right?.type === "StringLiteral" ? right
+      : right?.type === "Identifier" && right.name === "resolution_tier" && left?.type === "StringLiteral" ? left : undefined;
+    if (typeof pair?.value === "string" && pair.value.trim() && pair.value.length <= 100) result.add(pair.value.trim());
+  }
+  const childNames = node.type === "ConditionalExpression" ? ["test", "consequent", "alternate"]
+    : node.type === "LogicalExpression" || node.type === "BinaryExpression" ? ["left", "right"]
+      : node.type === "UnaryExpression" ? ["argument"] : [];
+  for (const name of childNames) {
+    const child = object(node[name]);
+    if (child) resolutionValues(child, result, depth + 1);
+  }
+  if (node.type === "CallExpression" && Array.isArray(node.arguments)) for (const argument of node.arguments) {
+    const child = object(argument);
+    if (child) resolutionValues(child, result, depth + 1);
+  }
+  return result;
+}
+
+function tierResolution(value: string) {
+  const match = value.trim().match(/(?:^|_)(\d+(?:\.\d+)?(?:p|k)|\d+x\d+)$/i);
+  return match?.[1] ?? "";
+}
+
+function pricingResolutions(ast: AstNode, tiers: AstNode[]) {
+  const result = resolutionValues(ast);
+  for (const node of tiers) {
+    const args = Array.isArray(node.arguments) ? node.arguments.map(object) : [];
+    const name = args[0]?.type === "StringLiteral" && typeof args[0].value === "string" ? tierResolution(args[0].value) : "";
+    if (name) result.add(name);
+  }
+  return [...result].slice(0, 30);
+}
+
 function formatAmount(value: number) {
   return Number(value.toFixed(6)).toString();
 }
@@ -198,6 +243,37 @@ function formatAmount(value: number) {
 function evaluatedTier(node: AstNode, changes: Partial<AihubkitPricingDimensions> = {}) {
   const value = evaluateNode(node, { ...emptyAihubkitPricingDimensions, seconds: 1, ...changes });
   return object(value) && typeof (value as AihubkitExpressionPrice).amount === "number" ? value as AihubkitExpressionPrice : undefined;
+}
+
+function changedAmount(node: AstNode, base: AihubkitExpressionPrice, changes: Partial<AihubkitPricingDimensions>) {
+  const next = evaluatedTier(node, changes);
+  return next && Math.abs(next.amount - base.amount) > 1e-9 ? next.amount - base.amount : 0;
+}
+
+function priceUnit(kind: AihubkitExpressionSummary["kind"], mediaType: "image" | "video", perSecond: boolean) {
+  if (kind === "tokenEstimate") return perSecond ? "秒" : mediaType === "image" ? "张" : "条";
+  if (kind === "perSecond") return "秒";
+  return mediaType === "image" ? "张" : "条";
+}
+
+function displayTiers(ast: AstNode, resolutions: string[], ratio: number, kind: AihubkitExpressionSummary["kind"], mediaType: "image" | "video", perSecond: boolean, inputAudioRate: number) {
+  const candidates = resolutions.length ? resolutions : [""];
+  const unit = priceUnit(kind, mediaType, perSecond);
+  const seen = new Set<string>();
+  return candidates.flatMap(resolution => {
+    const value = evaluateNode(ast, { ...emptyAihubkitPricingDimensions, seconds: 1, resolutionTier: resolution });
+    if (!object(value) || typeof (value as AihubkitExpressionPrice).amount !== "number") return [];
+    const price = value as AihubkitExpressionPrice;
+    const name = resolution || (price.tier === "base" ? "默认" : price.tier);
+    const amount = price.amount * ratio;
+    const label = kind === "inputAudioSecond"
+      ? `${formatAmount(amount)} 基础费 + ${formatAmount(inputAudioRate)}/输入音频秒`
+      : `${kind === "tokenEstimate" ? "参考 " : ""}${formatAmount(amount)}/${unit}`;
+    const key = `${name}\u0000${label}`;
+    if (!name || seen.has(key)) return [];
+    seen.add(key);
+    return [{ name, label } satisfies AihubkitExpressionTier];
+  }).slice(0, 30);
 }
 
 export function evaluateAihubkitExpression(expression: string, dimensions: AihubkitPricingDimensions): AihubkitExpressionPrice | null {
@@ -209,7 +285,7 @@ export function evaluateAihubkitExpression(expression: string, dimensions: Aihub
   return Number.isFinite(price.amount) && price.amount >= 0 ? price : null;
 }
 
-export function summarizeAihubkitExpression(expression: string, ratio: number): AihubkitExpressionSummary | null {
+export function summarizeAihubkitExpression(expression: string, ratio: number, mediaType: "image" | "video" = "video"): AihubkitExpressionSummary | null {
   const ast = parse(expression);
   if (!ast || !Number.isFinite(ratio) || ratio < 0) return null;
   const tiers = tierCalls(ast);
@@ -220,28 +296,53 @@ export function summarizeAihubkitExpression(expression: string, ratio: number): 
   if (!evaluated.length) return null;
   const minimum = Math.min(...evaluated.map(value => value.base.amount)) * ratio;
   const deferred = evaluated.some(value => value.base.deferred);
-  const perSecond = evaluated.some(({ tier, base }) => {
-    const next = evaluatedTier(tier, { seconds: 2 });
-    return next && Math.abs(next.amount - base.amount) > 1e-9;
-  });
-  const dynamic = evaluated.some(({ tier, base }) => [{ inputVideoSeconds: 1 }, { inputAudioSeconds: 1 }, { inputImageCount: 10 }].some(change => {
-    const next = evaluatedTier(tier, change);
-    return next && Math.abs(next.amount - base.amount) > 1e-9;
-  }));
+  const perSecond = evaluated.some(({ tier, base }) => changedAmount(tier, base, { seconds: 2 }) !== 0);
+  const inputAudio = evaluated.map(({ tier, base }) => changedAmount(tier, base, { inputAudioSeconds: 1 })).filter(value => value > 0);
+  const inputAudioRate = (inputAudio.length ? Math.min(...inputAudio) : 0) * ratio;
+  const otherDynamic = evaluated.some(({ tier, base }) => [
+    { inputVideoSeconds: 1 },
+    { inputImageCount: 10 },
+    { inputVideoCount: 1 },
+    { inputAudioCount: 1 },
+    { referenceImageCount: 1 },
+    { referenceVideoCount: 1 },
+    { referenceAudioCount: 1 },
+  ].some(change => changedAmount(tier, base, change) !== 0));
+  const dynamic = inputAudioRate > 0 || otherDynamic;
+  const kind: AihubkitExpressionSummary["kind"] = deferred ? "tokenEstimate"
+    : perSecond ? "perSecond"
+      : inputAudioRate > 0 && !otherDynamic ? "inputAudioSecond"
+        : dynamic ? "dynamic" : "fixed";
+  const resolutions = pricingResolutions(ast, tiers);
+  const display = displayTiers(ast, resolutions, ratio, kind, mediaType, perSecond, inputAudioRate);
   const ratioTip = `当前账号分组倍率 ${formatAmount(ratio)}×`;
   if (deferred) return {
     label: `按 Token · 参考 ${formatAmount(minimum)}/${perSecond ? "秒" : "次"}起`,
     tips: `按 Token 最终结算；生成前使用上游参考公式估算；${ratioTip}；最终以实际扣费为准。`,
     kind: "tokenEstimate",
+    billingLabel: "按 Token",
+    tiers: display,
   };
   if (perSecond) return {
     label: `${formatAmount(minimum)}/秒起`,
     tips: `按输出时长和所选清晰度计算${dynamic ? "，参考素材可能产生附加费用" : ""}；${ratioTip}；最终以实际扣费为准。`,
     kind: "perSecond",
+    billingLabel: "按秒",
+    tiers: display,
   };
+  if (kind === "inputAudioSecond") return {
+    label: `${formatAmount(inputAudioRate)}/输入音频秒起`,
+    tips: `按输入音频时长计算，另含 ${formatAmount(minimum)} 基础费；${ratioTip}；最终以实际扣费为准。`,
+    kind,
+    billingLabel: "按输入音频时长",
+    tiers: display,
+  };
+  const unit = mediaType === "image" ? "张" : "条";
   return {
-    label: `${formatAmount(minimum)}/次起`,
+    label: `${formatAmount(minimum)}/${unit}起`,
     tips: `${dynamic ? "价格随参考素材变化" : "按次计费"}；${ratioTip}；最终以实际扣费为准。`,
     kind: dynamic ? "dynamic" : "fixed",
+    billingLabel: dynamic ? "复合计费" : `按${unit}`,
+    tiers: display,
   };
 }
