@@ -6,7 +6,9 @@ import type { GeneratedMedia, MediaGenerationRequest, MediaModel, MediaReference
 import conf from "@/utils/conf";
 import { getMediaProvider, listMediaProviders, loadMediaProviderDefinition, loadMediaProviderSource } from "@/utils/media/provider";
 import { getAihubkitCatalog, getAihubkitModelCandidate } from "@/utils/aihubkit/catalog";
+import { getAihubkitAccess } from "@/utils/aihubkit/account";
 import { estimateAihubkitMediaPrice, scheduleAihubkitPriceHistoryRefresh } from "@/utils/aihubkit/pricing";
+import { getAihubkitVideoCapabilityRules, resolveAihubkitVideoReferenceLimits, type AihubkitVideoCapabilityRules } from "@/utils/aihubkit/videoCapabilities";
 import { lockWorkspaceFiles, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { beginGeneration, getProviderPrice } from "@/utils/media/billing";
 import { detectMimeType, readPriceReference } from "@/utils/media/priceReference";
@@ -32,29 +34,35 @@ function seconds(from: number, to: number) {
   return Array.from({ length: to - from + 1 }, (_value, index) => from + index);
 }
 
-function aihubkitVideoCapabilities(modelId: string): Pick<MediaModel, "mode" | "durationResolutionMap" | "audio"> {
+function aihubkitVideoCapabilities(modelId: string, description: string | undefined, rules: AihubkitVideoCapabilityRules): Pick<MediaModel, "mode" | "durationResolutionMap" | "audio"> {
   const id = modelId.toLowerCase();
+  const limits = resolveAihubkitVideoReferenceLimits(modelId, description, rules);
+  const mode = ["text", ...(limits?.images ? [[`imageReference:${limits.images}`]] : [])];
   if (/(?:seedance[-_. ]?2[._-]?5|^sd-2\.5)/i.test(id)) {
-    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(4, 30), resolution: ["480p", "720p", "1080p"] }], audio: "optional" };
+    return { mode, durationResolutionMap: [{ duration: seconds(4, 30), resolution: ["480p", "720p", "1080p"] }], audio: "optional" };
   }
   if (/(?:seedance[-_. ]?2[._-]?0|^sd-(?:2\.0|fast|mini))/i.test(id)) {
     const limited = /(?:fast|mini)/i.test(id);
-    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(4, 15), resolution: limited ? ["480p", "720p"] : ["480p", "720p", "1080p", "4k"] }], audio: "optional" };
+    return { mode, durationResolutionMap: [{ duration: seconds(4, 15), resolution: limited ? ["480p", "720p"] : ["480p", "720p", "1080p", "4k"] }], audio: "optional" };
   }
   if (/kling/i.test(id)) {
-    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(3, 15), resolution: ["720p", "1080p", "4k"] }] };
+    return { mode, durationResolutionMap: [{ duration: seconds(3, 15), resolution: ["720p", "1080p", "4k"] }] };
   }
   if (/minimax[-_. ]?h3/i.test(id)) {
-    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(4, 15), resolution: ["768p", "2k"] }] };
+    return { mode, durationResolutionMap: [{ duration: seconds(4, 15), resolution: ["768p", "2k"] }] };
   }
   if (/wan[-_. ]?3/i.test(id)) {
-    return { mode: ["text"], durationResolutionMap: [{ duration: seconds(2, 30), resolution: ["480p", "720p", "1080p"] }] };
+    return { mode, durationResolutionMap: [{ duration: seconds(2, 30), resolution: ["480p", "720p", "1080p"] }] };
   }
-  return { mode: ["text"], durationResolutionMap: [{ duration: [5], resolution: ["720p"] }] };
+  return { mode, durationResolutionMap: [{ duration: [5], resolution: ["720p"] }] };
 }
 
 export async function listMediaModels(): Promise<MediaModel[]> {
-  const installedProviders = await listMediaProviders();
+  const [installedProviders, catalog, videoCapabilityRules] = await Promise.all([
+    listMediaProviders(),
+    getAihubkitCatalog(),
+    getAihubkitVideoCapabilityRules(),
+  ]);
   const installed = installedProviders.flatMap(provider => provider.models.flatMap(model => {
     // ACT: 图片和视频由当前登录账户的 AIHubKit 目录唯一提供；旧供应商只保留音频兼容。
     if (model.type !== "audio") return [];
@@ -65,7 +73,6 @@ export async function listMediaModels(): Promise<MediaModel[]> {
       voices: model.voices,
     } as MediaModel];
   }));
-  const catalog = await getAihubkitCatalog();
   const dynamic = catalog.groups.flatMap(group => catalog.models.flatMap(model => {
     const relation = model.groups.find(item => item.id === group.id);
     if ((model.type !== "image" && model.type !== "video") || !relation) return [];
@@ -87,7 +94,7 @@ export async function listMediaModels(): Promise<MediaModel[]> {
       mode: ["text", "singleImage", "multiReference"],
       imageSizes: ["1024x1024"],
       imageRatios: ["1:1"],
-    } : { ...common, ...aihubkitVideoCapabilities(model.id) }];
+    } : { ...common, ...aihubkitVideoCapabilities(model.id, model.description, videoCapabilityRules) }];
   }));
   return [...dynamic, ...installed.filter(model => model.providerId !== aiHubKit.id)];
 }
@@ -185,7 +192,10 @@ async function configuredProvider(request: MediaGenerationRequest, mediaType: "i
     if (!groupId) invalid("这个节点的模型已失效，请重新选择模型");
     const candidate = await getAihubkitModelCandidate(request.modelId, mediaType, groupId);
     if (!candidate) invalid("这个节点的模型已失效，请重新选择模型");
-    const config = { apiKey1: candidate.apiKey };
+    const config = {
+      apiKey1: candidate.apiKey,
+      ...(mediaType === "video" ? { accountAccessToken: (await getAihubkitAccess()).accessToken } : {}),
+    };
     return loadMediaProviderDefinition(aiHubKit as Provider, config, signal, fetch, directory);
   }
   const info = await getMediaProvider(request.providerId);

@@ -1,5 +1,5 @@
 const apiUrl = "https://apimodel.aihubkit.com";
-const version = "0.2.0";
+const version = "0.3.0";
 const rules = [] as const;
 const maxReferenceImageSize = 100 * 1024 * 1024;
 const imageExtensions: Record<string, string> = {
@@ -24,6 +24,12 @@ function apiKeys(config: Record<string, unknown>) {
     .filter(([name, value]) => /^apiKey\d+$/.test(name) && typeof value === "string" && value.trim())
     .sort(([left], [right]) => Number(left.slice(6)) - Number(right.slice(6)))
     .map(([, value]) => (value as string).trim().replace(/^Bearer\s+/i, "").trim());
+}
+
+function accountAccessToken(config: Record<string, unknown>) {
+  const value = text(config.accountAccessToken).replace(/^Bearer\s+/i, "").trim();
+  if (!value) throw new Error("登录授权已失效，请重新登录后再上传参考图");
+  return value;
 }
 
 function normalizedImageMimeType(value: unknown) {
@@ -61,7 +67,7 @@ function decodeBase64Image(input: Extract<MediaInput, { type: "base64" }>) {
   return { bytes: checkedImageBytes(new Uint8Array(Buffer.from(encoded, "base64"))), mimeType };
 }
 
-async function imageUpload(context: ProviderContext, input: MediaInput, index: number) {
+async function imageContent(context: ProviderContext, input: MediaInput, index: number) {
   let bytes: Uint8Array;
   let mimeType: string;
   if (input.type === "base64") ({ bytes, mimeType } = decodeBase64Image(input));
@@ -87,7 +93,12 @@ async function imageUpload(context: ProviderContext, input: MediaInput, index: n
     if (!mimeType) throw new Error("下载的参考素材不是可识别的图片");
   }
   const extension = imageExtensions[mimeType] ?? "img";
-  return { blob: new Blob([Uint8Array.from(bytes).buffer], { type: mimeType }), filename: `reference-${index + 1}.${extension}` };
+  return { bytes, mimeType, filename: `reference-${index + 1}.${extension}` };
+}
+
+async function imageUpload(context: ProviderContext, input: MediaInput, index: number) {
+  const { bytes, mimeType, filename } = await imageContent(context, input, index);
+  return { blob: new Blob([Uint8Array.from(bytes).buffer], { type: mimeType }), filename };
 }
 
 type ImageUploads = { images: Awaited<ReturnType<typeof imageUpload>>[]; mask?: Awaited<ReturnType<typeof imageUpload>> };
@@ -96,6 +107,79 @@ async function prepareImageUploads(context: ProviderContext, request: ImageReque
   const images = await Promise.all((request.images ?? []).map((input, index) => imageUpload(context, input, index)));
   const mask = request.mask ? await imageUpload(context, request.mask, images.length) : undefined;
   return { images, mask };
+}
+
+function httpsUrl(value: unknown, label: string) {
+  const source = text(value);
+  let url: URL;
+  try { url = new URL(source); }
+  catch { throw new Error(`AIHubKit 临时文件接口返回的${label}无效`); }
+  if (url.protocol !== "https:") throw new Error(`AIHubKit 临时文件接口返回的${label}不是 HTTPS 地址`);
+  return url.href;
+}
+
+function temporaryUploadHeaders(value: unknown, fallbackMimeType: string) {
+  const headers = new Headers();
+  for (const [name, headerValue] of Object.entries(object(value))) {
+    if (!/^(?:content-type|content-md5|x-(?:amz|oss|cos|goog|ms)-[a-z0-9-]+)$/i.test(name) || typeof headerValue !== "string") continue;
+    headers.set(name, headerValue);
+  }
+  if (!headers.has("Content-Type")) headers.set("Content-Type", fallbackMimeType);
+  return headers;
+}
+
+async function uploadTemporaryImage(context: ProviderContext, input: MediaInput, index: number) {
+  if (input.type === "url") {
+    try {
+      const url = new URL(input.url);
+      if (url.protocol === "https:") return url.href;
+    } catch {
+      throw new Error("参考图地址无效，只支持 HTTP 或 HTTPS 地址");
+    }
+  }
+  const { bytes, mimeType, filename } = await imageContent(context, input, index);
+  const created = await fetchJson(context, accountAccessToken(context.config), "/v1/temporary-files", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, content_type: mimeType, size: bytes.byteLength }),
+  });
+  if (!created.response.ok || object(created.payload).success === false) {
+    throw requestError(context, created.payload, created.response.status);
+  }
+  const data = object(object(created.payload).data);
+  const uploadUrl = httpsUrl(data.upload_url, "上传地址");
+  const publicUrl = httpsUrl(data.url, "访问地址");
+  const headers = temporaryUploadHeaders(data.headers, normalizedImageMimeType(data.content_type) || mimeType);
+  const uploaded = await context.tool.fetch(uploadUrl, {
+    method: "PUT",
+    headers,
+    body: Uint8Array.from(bytes).buffer,
+    signal: context.signal,
+  });
+  if (!uploaded.ok) throw new Error(`上传参考图失败（HTTP ${uploaded.status}）`);
+  await uploaded.body?.cancel();
+  return publicUrl;
+}
+
+function imageReferenceLimit(mode: VideoRequest["mode"]) {
+  if (!Array.isArray(mode)) return 0;
+  const value = mode.find(item => item.startsWith("imageReference:"))?.split(":")[1];
+  const limit = Number(value);
+  return Number.isInteger(limit) && limit > 0 && limit <= 100 ? limit : 0;
+}
+
+async function prepareVideoReferenceImages(context: ProviderContext, request: VideoRequest) {
+  const images = request.images ?? [];
+  if (!images.length) return undefined;
+  const limit = imageReferenceLimit(request.mode);
+  if (!limit) throw new Error("当前模型没有声明参考图能力，请刷新模型或更换模型");
+  if (images.length > limit) throw new Error(`当前模型最多支持 ${limit} 张参考图`);
+  const urls: string[] = [];
+  // ACT: 临时上传顺序执行，避免一次把多张 100 MB 图片同时保留在请求队列中。
+  for (let index = 0; index < images.length; index++) {
+    urls.push(await uploadTemporaryImage(context, images[index]!, index));
+  }
+  return urls;
 }
 
 function imageEditBody(request: ImageRequest, uploads: ImageUploads) {
@@ -348,9 +432,9 @@ export default {
   },
   async generateVideo(this: ProviderContext, request: VideoRequest): Promise<MediaAsset[]> {
     if (!request.prompt.trim()) throw new Error("请输入视频生成提示词");
-    if (request.images?.length || request.videos?.length || request.audios?.length || request.firstFrame || request.lastFrame) {
-      throw new Error("AIHubKit 参考素材需要先上传为临时公网地址，当前版本先支持文生视频");
-    }
+    if (request.videos?.length) throw new Error("当前版本暂不支持参考视频，请先只使用图片参考");
+    if (request.audios?.length) throw new Error("当前版本暂不支持参考音频，请先只使用图片参考");
+    if (request.firstFrame || request.lastFrame) throw new Error("当前版本暂不支持首尾帧，请改用普通图片参考");
     if (!Number.isInteger(request.duration) || request.duration! <= 0) throw new Error("请选择视频时长");
     const resolution = request.resolution?.trim();
     if (!resolution) throw new Error("请选择视频分辨率");
@@ -358,12 +442,14 @@ export default {
     if (!keys.length) throw new Error("没有找到当前模型的 AIHubKit 授权，请刷新模型后重试");
     const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(this.signal ? [this.signal] : [])]);
     const context = { ...this, signal };
+    const referenceImages = await prepareVideoReferenceImages(context, request);
     const body = {
       model: request.model,
       prompt: request.prompt.trim(),
       duration: request.duration,
       resolution,
       ...(request.ratio?.trim() ? { ratio: request.ratio.trim() } : {}),
+      ...(referenceImages ? { referenceImages } : {}),
     };
     let lastError: unknown;
     for (const key of keys) {
