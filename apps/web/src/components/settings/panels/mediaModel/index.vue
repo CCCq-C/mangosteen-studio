@@ -1,6 +1,5 @@
 <template>
   <div class="modelSettings">
-    <modelCatalog :types="['image', 'video']" :visible="visible" notice="图片、视频模型和分组价格都来自当前账号；上游变化后可自动或手动同步。" />
     <el-collapse v-model="advancedSections" class="advancedSettings">
       <el-collapse-item name="providers">
         <template #title>
@@ -64,7 +63,6 @@ import type { MediaProvider } from "./types";
 import { settings, saveSettings } from "@/stores/settings";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 import tfAccount from "../../tfAccount.vue";
-import modelCatalog from "../../modelCatalog.vue";
 
 const { visible = true } = defineProps<{ visible?: boolean }>();
 const mediaProviderDialog = shallowRef<Component>();
@@ -184,9 +182,6 @@ function saveProviderItem(provider: MediaProvider) {
 <style lang="scss" scoped src="../../providerList.scss"></style>
 <style scoped lang="scss">
 .modelSettings {
-  display: grid;
-  gap: 20px;
-
   .advancedSettings {
     .advancedTitle {
       display: flex;

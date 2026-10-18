@@ -1,6 +1,5 @@
 <template>
   <div class="modelSettings">
-    <modelCatalog :types="['language']" :visible="visible" notice="当前账号的文本模型会按上游分组同步到灵感创作、新对话和文本节点。" />
     <el-collapse v-model="advancedSections" class="advancedSettings">
       <el-collapse-item name="providers">
         <template #title>
@@ -61,7 +60,6 @@ import { IconPlus, IconSettings, IconEdit, IconTrash, IconRefresh } from "@table
 import { languageProviders } from "@toonflow/providers";
 import logoUrl from "@toonflow/assets/mangosteenAvatar.png";
 import tfAccount from "../../tfAccount.vue";
-import modelCatalog from "../../modelCatalog.vue";
 import { isTfRouterProvider } from "@/lib/tf";
 
 const { visible = true } = defineProps<{ visible?: boolean }>();
@@ -148,9 +146,6 @@ async function fetchProviderModels(provider: CustomProvider) {
 <style lang="scss" scoped src="../../providerList.scss"></style>
 <style scoped lang="scss">
 .modelSettings {
-  display: grid;
-  gap: 20px;
-
   .advancedSettings {
     .advancedTitle {
       display: flex;
