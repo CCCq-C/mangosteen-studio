@@ -1,4 +1,4 @@
-import { t, translateMessage, validationOptions } from "@/lib/i18n";
+import { getLocale, t, translateMessage, validationOptions } from "@/lib/i18n";
 
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, unlink } from "@toonflow/file";
@@ -63,6 +63,68 @@ function mediaErrorMessage(value: unknown, config: Record<string, unknown>, dept
     .replace(/([?&][^=&#\s]+)=[^&#\s"'<>]*/g, "$1=••••••")
     .replace(/((?:api[_-]?key|secret|token|password|authorization|cookie)["']?\s*[:=]\s*["']?)[^\s"',;}&<>]+/gi, "$1••••••")
     .slice(0, 4000);
+}
+
+function mediaParameterLabel(value: string) {
+  return ({
+    duration: "视频时长",
+    resolution: "分辨率",
+    ratio: "画面比例",
+    "aspect ratio": "画面比例",
+    size: "图片尺寸",
+    mode: "生成模式",
+    format: "输出格式",
+  } as Record<string, string>)[value.trim().toLowerCase()] ?? `参数“${value.trim()}”`;
+}
+
+function mediaTypeLabel(value: string | undefined) {
+  return ({ image: "图片", video: "视频", audio: "音频" } as Record<string, string>)[value?.toLowerCase() ?? ""] ?? "";
+}
+
+function mediaErrorReference(value: string) {
+  const requestId = /\brequest(?:[_\s-]?id)\s*[:=]\s*["']?([a-z\d._:-]+)/i.exec(value)?.[1];
+  const httpStatus = /\b(?:http|status(?:\s+code)?)\s*[:：]?\s*(\d{3})\b/i.exec(value)?.[1];
+  return `${httpStatus ? `（HTTP ${httpStatus}）` : ""}${requestId ? `，请求编号：${requestId}` : ""}`;
+}
+
+function localizeMediaErrorLine(value: string) {
+  const line = value.trim();
+  let match = /^duration must be between\s+([\d.]+)\s+and\s+([\d.]+)\s+seconds?;\s*received\s+([\d.]+)\.?$/i.exec(line);
+  if (match) return `视频时长必须在 ${match[1]} 到 ${match[2]} 秒之间，当前选择为 ${match[3]} 秒。`;
+
+  match = /^(?:(image|video|audio)\s+)?model\s+["']([^"']+)["']\s+does not support\s+([a-z][a-z\d _-]*)\s+["']([^"']+)["'](?:;\s*supported values?:\s*(.+?))?\.?$/i.exec(line);
+  if (match) {
+    const parameter = mediaParameterLabel(match[3]!);
+    const supported = match[5]?.replace(/[.;]+$/, "").trim();
+    return `${mediaTypeLabel(match[1])}模型“${match[2]}”不支持${parameter}“${match[4]}”${supported ? `；支持的${parameter}：${supported}` : ""}。`;
+  }
+
+  match = /^([a-z][a-z\d _-]*)\s+must be between\s+(.+?)\s+and\s+(.+?);\s*received\s+(.+?)\.?$/i.exec(line);
+  if (match) return `${mediaParameterLabel(match[1]!)}必须在 ${match[2]} 到 ${match[3]} 之间，当前值为 ${match[4]}。`;
+
+  match = /^(?:missing required (?:field|parameter)|required (?:field|parameter) missing)\s*[:：]?\s*["']?([^"']+?)["']?\.?$/i.exec(line)
+    ?? /^(?:field|parameter)\s+["']([^"']+)["']\s+is required\.?$/i.exec(line);
+  if (match) return `缺少必填参数“${match[1]}”。`;
+
+  const reference = mediaErrorReference(line);
+  if (/copyright restrictions?|copyrighted/i.test(line)) return `生成内容可能涉及版权限制，请修改素材或提示词后重试${reference}。`;
+  if (/content policy|content moderation|safety policy|unsafe content|moderation failed/i.test(line)) return `生成内容未通过安全审核，请修改素材或提示词后重试${reference}。`;
+  if (/insufficient (?:balance|credits?)|balance is insufficient|not enough credits?/i.test(line)) return `当前账号余额或额度不足，请检查后再试${reference}。`;
+  if (/rate limit|too many requests|request limit/i.test(line)) return `请求过于频繁，请稍后再试${reference}。`;
+  if (/no available channels?|channels? (?:is|are) unavailable|service unavailable/i.test(line)) return `当前模型暂时没有可用线路，请稍后重试或更换模型${reference}。`;
+  if (/timed? out|timeout/i.test(line)) return `生成服务等待超时，请稍后重试${reference}。`;
+  if (/unauthorized|authentication failed|invalid api[ _-]?key|token (?:has )?expired/i.test(line)) return `当前账号授权已失效，请重新登录后再试${reference}。`;
+  if (/model (?:was )?not found|unknown model/i.test(line)) return `没有找到所选模型，请刷新模型列表后重新选择${reference}。`;
+  if (/\b(?:bad request|invalid (?:request|parameter|value)|validation (?:error|failed))\b/i.test(line)) return `生成参数不符合当前模型要求，请检查后重试${reference}。`;
+  if (/\b(?:internal server error|server error|bad gateway|gateway error)\b/i.test(line)) return `上游生成服务暂时异常，请稍后重试${reference}。`;
+  if (/[\u3400-\u9fff]/u.test(line) || !/[a-z]{3,}/i.test(line)) return line;
+  return `上游生成服务返回了未识别的错误，请打开设置里的日志查看详情${reference}。`;
+}
+
+function localizeMediaErrorMessage(message: string) {
+  if (!getLocale().startsWith("zh")) return message;
+  // ACT: 不调用外部翻译服务；常见上游错误精确中文化，未知英文显示中文摘要，原文仍保留在异常 cause 中。
+  return message.split("\n").map(localizeMediaErrorLine).filter(Boolean).join("\n").slice(0, 4000);
 }
 
 function createMediaTools(fetcher: typeof fetch = fetch): ProviderTools["media"] {
@@ -501,8 +563,9 @@ export async function loadMediaProviderDefinition(
         if (!overlappingRequests && failure?.message && matchesFailure) {
           message = [...new Set([...message.split("\n"), ...failure.message.split("\n")])].join("\n").slice(0, 4000);
         }
-        if (message === (typeof error === "string" ? error : info?.message)) throw error;
-        throw Object.assign(new Error(message), typeof error === "object" ? error : undefined, { message, cause: error });
+        const localizedMessage = localizeMediaErrorMessage(message);
+        if (localizedMessage === (typeof error === "string" ? error : info?.message)) throw error;
+        throw Object.assign(new Error(localizedMessage), typeof error === "object" ? error : undefined, { message: localizedMessage, cause: error });
       }
     } });
   }
