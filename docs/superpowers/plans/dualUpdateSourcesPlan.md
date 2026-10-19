@@ -59,13 +59,13 @@
 - Consumes: Task 1 的来源枚举和更新快照
 - Produces: 桌面端启动静默检查、关于页手动检查/下载/安装、开发者自定义来源
 
-- [ ] **Step 1:** 将 Web 侧来源归一化为 `auto/gitee/github/custom`，切源时立即清空旧源状态。
-- [ ] **Step 2:** 为检查流程增加静默模式；启动自动检查失败只记录状态，不弹错误，也不影响后续手动检查。
-- [ ] **Step 3:** 在 `App.vue` 初始化完成后仅对本地桌面端触发一次静默检查，开发模式和远程连接由现有边界拒绝。
-- [ ] **Step 4:** 在“关于”页增加更新源选择、当前实际来源、检查/下载/安装按钮与进度提示，复用现有 store，避免重复状态机。
-- [ ] **Step 5:** 开发者页只保留自定义 URL 编辑；清空正在使用的自定义 URL 时自动切回 `auto`。
-- [ ] **Step 6:** 执行 `bun run --filter '@toonflow/web' typecheck`，期望退出码 0。
-- [ ] **Step 7:** 提交 `feat: check desktop updates on startup`。
+- [x] **Step 1:** 将 Web 侧来源归一化为 `auto/gitee/github/custom`，切源时立即清空旧源状态。
+- [x] **Step 2:** 为检查流程增加静默模式；启动自动检查失败只记录状态，不弹错误，也不影响后续手动检查。
+- [x] **Step 3:** 在 `App.vue` 初始化完成后仅对本地桌面端触发一次静默检查，开发模式和远程连接由现有边界拒绝。
+- [x] **Step 4:** 在“关于”页增加更新源选择、当前实际来源、检查/下载/安装按钮与进度提示，复用现有 store，避免重复状态机。
+- [x] **Step 5:** 开发者页只保留自定义 URL 编辑；清空正在使用的自定义 URL 时自动切回 `auto`。
+- [x] **Step 6:** 执行 `bun run --filter '@toonflow/web' typecheck`，期望退出码 0。
+- [x] **Step 7:** 提交 `feat: check desktop updates on startup`。
 
 ### Task 3: 一次构建发布 GitHub 与 Gitee
 

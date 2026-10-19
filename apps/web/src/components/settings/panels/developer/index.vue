@@ -202,7 +202,7 @@ async function saveCustomUpdateUrl() {
     savingUpdateUrl.value = true;
     await saveSettings(current => ({
       desktopUpdateCustomUrl: url,
-      ...(url || current.desktopUpdateSource !== "custom" ? {} : { desktopUpdateSource: "official" }),
+      ...(url || current.desktopUpdateSource !== "custom" ? {} : { desktopUpdateSource: "auto" }),
     }));
     customUpdateUrl.value = url;
     ElMessage.success("自定义更新源已保存");

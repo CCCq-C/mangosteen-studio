@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch, watchEffect } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect } from "vue";
 import { ElMessage, useZIndex } from "element-plus";
 import { elementLocales } from "@toonflow/i18n/elementPlus";
 import { ConfigProvider, type GlobalConfigProvider } from "tdesign-vue-next";
@@ -53,9 +53,9 @@ import tdesignAr from "tdesign-vue-next/es/locale/ar_KW";
 import { locale } from "@toonflow/i18n/vue";
 import type { updateSnapshot } from "@toonflow/server/desktop";
 import { chatLocale } from "@/lib/i18n";
-import { isMobile, isDesktop } from "@/lib/platform";
+import { isMobile, isDesktop, isRemoteConnection } from "@/lib/platform";
 import { saveSettings, settings, uiSettings } from "@/stores/settings";
-import { desktopUpdateSnapshot, stopDesktopUpdateObservation } from "@/stores/desktopUpdate";
+import { checkDesktopUpdate, desktopUpdateSnapshot, desktopUpdateSnapshotSilent, stopDesktopUpdateObservation } from "@/stores/desktopUpdate";
 import { useMcpControl } from "@/lib/mcpControl";
 import ffmpegRequired from "@/components/settings/ffmpegRequired.vue";
 import updateBox from "@/components/updateBox.vue";
@@ -96,6 +96,8 @@ watch(desktopUpdateSnapshot, snapshot => {
     installFailureVisible.value = true;
     return;
   }
+  // ACT: 后台更新检查只更新“关于”页和设置红点，不把当前版本说明误当成新版本弹窗。
+  if (desktopUpdateSnapshotSilent.value) return;
   if (!snapshot.version || !snapshot.hash || snapshot.channel === "dev") return;
   if (installFailure.value) {
     if (snapshot.error || snapshot.updating || snapshot.version !== installFailure.value.targetVersion || snapshot.hash !== installFailure.value.targetHash) return;
@@ -109,6 +111,11 @@ watch(desktopUpdateSnapshot, snapshot => {
   updateBoxBuild.value = { version: snapshot.version, hash: snapshot.hash };
   updateBoxVisible.value = true;
 }, { immediate: true });
+
+onMounted(() => {
+  if (!isDesktop || isRemoteConnection || import.meta.env.DEV) return;
+  void checkDesktopUpdate(false, true).catch(() => { /* 后台检查失败不影响登录、项目和画布。 */ });
+});
 
 function rememberUpdateBox() {
   if (!updateBoxBuild.value) return;
