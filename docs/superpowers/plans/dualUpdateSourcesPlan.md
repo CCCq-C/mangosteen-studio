@@ -94,9 +94,9 @@
 - Consumes: Tasks 1–3 的客户端与发布链路
 - Produces: 用户下载说明、维护者 Secret/发布/回滚说明、双仓同提交交付
 
-- [ ] **Step 1:** README 同时列出 GitHub 与 Gitee 下载入口，明确 `v0.1.1` 仍需手动安装、自动更新从完整后续版本开始。
-- [ ] **Step 2:** 开发文档记录来源策略、`GITEE_TOKEN` 最小权限、发布重跑、双端校验与回滚流程。
-- [ ] **Step 3:** 执行全仓 `bun run typecheck`，期望退出码 0；再执行 `bun run build`，期望退出码 0。
-- [ ] **Step 4:** 用 Gitee 公开 latest Release 接口和 GitHub latest Release 页面做非付费真实网络验证；没有完整更新产物时必须安全回退或显示无更新。
-- [ ] **Step 5:** 检查 Git diff、提交记录和工作树，确认未包含 Token、证书、构建产物及无关的 `packages/startup/assets/startup 2.json`。
-- [ ] **Step 6:** 推送工作分支到 GitHub 与 Gitee，核对两个远端分支 SHA 完全一致；没有 `GITEE_TOKEN` 时明确标记 Release 自动镜像尚未激活。
+- [x] **Step 1:** README 同时列出 GitHub 与 Gitee 下载入口，明确 `v0.1.1` 仍需手动安装、自动更新从完整后续版本开始。
+- [x] **Step 2:** 开发文档记录来源策略、`GITEE_TOKEN` 最小权限、发布重跑、双端校验与回滚流程。
+- [x] **Step 3:** 执行全仓 `bun run typecheck`，期望退出码 0；再执行 `bun run build`，期望退出码 0。
+- [x] **Step 4:** 用 Gitee 公开 latest Release 接口和 GitHub latest Release 页面做非付费真实网络验证；没有完整更新产物时必须安全回退或显示无更新。
+- [x] **Step 5:** 检查 Git diff、提交记录和工作树，确认未包含 Token、证书、构建产物及无关的 `packages/startup/assets/startup 2.json`。
+- [x] **Step 6:** 推送工作分支到 GitHub 与 Gitee，核对两个远端分支 SHA 完全一致；没有 `GITEE_TOKEN` 时明确标记 Release 自动镜像尚未激活。
