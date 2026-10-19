@@ -301,6 +301,11 @@ jobs:
           }
 
           attachments = (await giteeRequest(`${attachmentPath}?page=1&per_page=100&direction=asc`, {}, "核验 Gitee 附件")).data;
+          const expectedNames = new Set(expected.map(file => file.name));
+          const unexpectedGiteeAssets = attachments.filter(item => !expectedNames.has(item?.name));
+          if (attachments.length !== expected.length || unexpectedGiteeAssets.length) {
+            throw new Error(`Gitee Release 附件集合不一致：${unexpectedGiteeAssets.map(item => item?.name).join(", ") || "数量不一致"}`);
+          }
           for (const file of expected) {
             const matches = attachments.filter(item => item?.name === file.name && Number(item.size) === file.size);
             if (matches.length !== 1) throw new Error(`Gitee 附件 ${file.name} 数量或大小不正确`);
@@ -317,6 +322,10 @@ jobs:
             headers: githubHeaders, signal: AbortSignal.timeout(30000),
           });
           const githubRelease = await readResponse(githubReleaseResponse, "读取 GitHub Release");
+          const unexpectedGithubAssets = githubRelease.assets.filter(item => !expectedNames.has(item?.name));
+          if (githubRelease.assets.length !== expected.length || unexpectedGithubAssets.length) {
+            throw new Error(`GitHub Release 附件集合不一致：${unexpectedGithubAssets.map(item => item?.name).join(", ") || "数量不一致"}`);
+          }
           for (const file of expected) {
             const matches = githubRelease.assets.filter(item => item?.name === file.name && Number(item.size) === file.size);
             if (matches.length !== 1) throw new Error(`GitHub 附件 ${file.name} 数量或大小不正确`);
