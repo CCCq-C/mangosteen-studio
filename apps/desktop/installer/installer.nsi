@@ -205,11 +205,11 @@ tarReady:
   WriteRegStr HKCU "${uninstallKey}" "UninstallString" '$\"$INSTDIR\UninstallNSIS.exe$\"'
   WriteRegStr HKCU "${uninstallKey}" "QuietUninstallString" '$\"$INSTDIR\UninstallNSIS.exe$\" /S'
   IfErrors installFailed
-  StrCpy $installStep "注册 toonflow:// 协议"
-  WriteRegStr HKCU "Software\Classes\toonflow" "" "URL:山竹漫剧 Protocol"
-  WriteRegStr HKCU "Software\Classes\toonflow" "URL Protocol" ""
-  WriteRegStr HKCU "Software\Classes\toonflow\DefaultIcon" "" '$\"$INSTDIR\app\Resources\app.ico$\",0'
-  WriteRegStr HKCU "Software\Classes\toonflow\shell\open\command" "" '$\"$INSTDIR\app\Resources\app\protocolLauncher.exe$\" $\"%1$\"'
+  StrCpy $installStep "注册 mangosteen-studio:// 协议"
+  WriteRegStr HKCU "Software\Classes\mangosteen-studio" "" "URL:山竹漫剧 Protocol"
+  WriteRegStr HKCU "Software\Classes\mangosteen-studio" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\mangosteen-studio\DefaultIcon" "" '$\"$INSTDIR\app\Resources\app.ico$\",0'
+  WriteRegStr HKCU "Software\Classes\mangosteen-studio\shell\open\command" "" '$\"$INSTDIR\app\Resources\app\protocolLauncher.exe$\" $\"%1$\"'
   IfErrors installFailed
   CreateShortCut "$DESKTOP\${appName}.lnk" "$INSTDIR\app\Resources\app\startupLauncher.exe" "" "$INSTDIR\app\Resources\app.ico"
   IfErrors 0 installDone
@@ -273,9 +273,9 @@ Section "Uninstall"
     IfErrors uninstallMetadataFailed
   ${EndIf}
   ClearErrors
-  ReadRegStr $0 HKCU "Software\Classes\toonflow\shell\open\command" ""
+  ReadRegStr $0 HKCU "Software\Classes\mangosteen-studio\shell\open\command" ""
   ${If} $0 == '$\"$INSTDIR\app\Resources\app\protocolLauncher.exe$\" $\"%1$\"'
-    DeleteRegKey HKCU "Software\Classes\toonflow"
+    DeleteRegKey HKCU "Software\Classes\mangosteen-studio"
     IfErrors uninstallMetadataFailed
   ${EndIf}
   ClearErrors
