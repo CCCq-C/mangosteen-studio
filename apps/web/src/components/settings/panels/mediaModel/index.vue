@@ -62,8 +62,9 @@ import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 const mediaProviderDialog = shallowRef<Component>();
 const editProviderDialog = shallowRef<Component>();
 const providers = ref<MediaProvider[]>([]);
+const builtInProviderFiles = new Set(["tfRouter.ts", "apiMart.ts", "metaso.ts", "compshare.ts"]);
 const sortedProviders = computed(() => providers.value
-  .filter(provider => provider.id.toLowerCase() !== "tfrouter")
+  .filter(provider => !builtInProviderFiles.has(provider.fileName))
   .sort((left, right) => left.label.localeCompare(right.label)));
 const loaded = ref(false);
 const providerDialogVisible = ref(false);
