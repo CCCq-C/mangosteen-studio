@@ -26,7 +26,7 @@
 <script setup lang="ts">
 import logoUrl from "@toonflow/assets/mangosteenAvatar.png";
 
-const currentVersion = import.meta.env.appVersion || "0.1.0";
+const currentVersion = import.meta.env.appVersion || "0.1.1";
 </script>
 
 <style lang="scss" scoped>

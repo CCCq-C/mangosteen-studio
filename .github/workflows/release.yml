@@ -1,5 +1,5 @@
-name: Release Toonflow
-run-name: Release Toonflow ${{ github.event_name == 'push' && github.ref_name || (startsWith(inputs.version, 'v') && inputs.version || format('v{0}', inputs.version)) }}
+name: Release Mangosteen Studio
+run-name: Release Mangosteen Studio ${{ startsWith(inputs.version, 'v') && inputs.version || format('v{0}', inputs.version) }}
 
 on:
   workflow_dispatch:
@@ -11,10 +11,6 @@ on:
       ref:
         description: 留空使用当前选择的版本；签名构建要求与所选工作流版本为同一提交
         type: string
-  push:
-    tags:
-      - "v*"
-
 permissions:
   contents: read
 

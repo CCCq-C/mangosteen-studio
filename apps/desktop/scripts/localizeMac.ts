@@ -1,3 +1,4 @@
+import { $ } from "bun";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "@toonflow/file";
 import { join } from "node:path";
 
@@ -34,5 +35,13 @@ if (process.env.ELECTROBUN_OS === "macos") {
   mkdirSync(resourceDir, { recursive: true });
   writeFileSync(join(resourceDir, "InfoPlist.strings"),
     `CFBundleName = ${JSON.stringify("山竹漫剧")};\nCFBundleDisplayName = ${JSON.stringify("山竹漫剧")};\n`);
+
+  // ACT: 本地测试包没有 Developer ID。清除构建目录元数据后补上临时签名，
+  // 避免 macOS 把构建器遗留的不完整签名判断为“应用已损坏”。CI 仍使用正式签名。
+  if (process.env.macCodesign !== "1") {
+    await $`xattr -cr ${bundlePath}`;
+    await $`codesign --force --deep --sign - ${bundlePath}`;
+    console.log(`已为本地 macOS 测试包添加临时签名：${bundlePath}`);
+  }
   console.log(`已设置 macOS 简体中文本地化：${bundlePath}`);
 }

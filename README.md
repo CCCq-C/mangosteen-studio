@@ -18,7 +18,13 @@
 
 ## 下载
 
-已发布的 macOS 安装包位于 [GitHub Releases](https://github.com/CCCq-C/mangosteen-studio/releases)。`main` 分支可能包含尚未打包发布的开发版本。
+当前稳定版为 **v0.1.1**，支持 Apple Silicon（M1/M2/M3/M4）Mac：
+
+- [下载最新版 macOS 安装包](https://github.com/CCCq-C/mangosteen-studio/releases/latest)
+- 打开 DMG 后，将“山竹漫剧”拖入“应用程序”文件夹。
+- 当前测试版尚未经过 Apple 公证；若 macOS 首次阻止打开，请在“系统设置 → 隐私与安全性”中选择“仍要打开”。
+
+每个 GitHub Release 同时提供安装包、桌面更新清单和完整更新归档。`main` 分支可能包含尚未打包发布的开发版本。
 
 ## 本地开发
 
