@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    :title="mode === 'builtin' ? '添加媒体供应商' : '添加自定义媒体供应商'"
+    title="添加媒体供应商"
     :width="mode === 'builtin' ? 'min(860px, 94vw)' : 'min(760px, 94vw)'"
     alignCenter
     appendToBody

@@ -26,6 +26,8 @@ export type AihubkitCatalogModel = {
 export type AihubkitCatalog = {
   revision: number;
   syncedAt: number;
+  totalGroupCount: number;
+  syncedGroupCount: number;
   groups: AihubkitCatalogGroup[];
   models: AihubkitCatalogModel[];
   unknownModelCount: number;
@@ -47,8 +49,11 @@ const catalog = shallowRef<AihubkitCatalog>();
 const loading = ref(false);
 const errorMessage = ref("");
 const catalogRefreshInterval = 10 * 60_000;
+const partialRefreshInterval = 15_000;
+const errorRetryInterval = 60_000;
 let pending: Promise<AihubkitCatalog> | undefined;
-let syncTimer: ReturnType<typeof setInterval> | undefined;
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
+let syncGeneration = 0;
 let stateEpoch = 0;
 
 function requestError(error: unknown) {
@@ -111,18 +116,31 @@ export function loadAihubkitCatalog(refresh = false) {
 }
 
 export function stopAihubkitCatalogSync() {
-  if (syncTimer) clearInterval(syncTimer);
+  syncGeneration++;
+  if (syncTimer) clearTimeout(syncTimer);
   syncTimer = undefined;
+}
+
+function scheduleCatalogSync(generation: number, delay: number) {
+  if (generation !== syncGeneration) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => void runCatalogSync(generation), delay);
+}
+
+async function runCatalogSync(generation: number) {
+  try {
+    const value = await loadAihubkitCatalog(true);
+    scheduleCatalogSync(generation, value.partial ? partialRefreshInterval : catalogRefreshInterval);
+  } catch {
+    scheduleCatalogSync(generation, errorRetryInterval);
+  }
 }
 
 export function startAihubkitCatalogSync() {
   stopAihubkitCatalogSync();
   // Every restored or newly-created session gets one live account-specific refresh.
-  // The persisted snapshot remains available on the server as the failure fallback.
-  void loadAihubkitCatalog(true).catch(() => {});
-  syncTimer = setInterval(() => {
-    void loadAihubkitCatalog(true).catch(() => {});
-  }, catalogRefreshInterval);
+  // Partial catalogs continue in small, rate-limit-safe batches until complete.
+  void runCatalogSync(syncGeneration);
 }
 
 export function clearAihubkitCatalogState() {

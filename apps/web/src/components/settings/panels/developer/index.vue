@@ -31,6 +31,20 @@
         </div>
         <el-button :icon="IconCode" @click="providerDebugVisible = true">开发供应商</el-button>
       </div>
+      <section class="modelProviderSettings" aria-label="模型供应商">
+        <div class="toolDescription">
+          <h3>模型供应商</h3>
+          <p>为开发调试添加通用文本接口或自定义媒体适配器。</p>
+        </div>
+        <el-tabs v-model="providerSettingsTab" stretch>
+          <el-tab-pane label="文本模型" name="language" lazy>
+            <languageModel />
+          </el-tab-pane>
+          <el-tab-pane label="媒体模型" name="media" lazy>
+            <mediaModel />
+          </el-tab-pane>
+        </el-tabs>
+      </section>
       <div class="developerRow">
         <div class="toolDescription">
           <h3>Agent 系统提示词</h3>
@@ -142,6 +156,9 @@ const router = useRouter();
 const resettingHello = ref(false);
 const providerDebugDialog = defineAsyncComponent(() => import("./providerDebugDialog.vue"));
 const providerDebugVisible = ref(false);
+const languageModel = defineAsyncComponent(() => import("../languageModel/index.vue"));
+const mediaModel = defineAsyncComponent(() => import("../mediaModel/index.vue"));
+const providerSettingsTab = ref<"language" | "media">("language");
 const systemPromptDialog = defineAsyncComponent(() => import("./systemPromptDialog.vue"));
 const systemPromptVisible = ref(false);
 const updateBox = defineAsyncComponent(() => import("@/components/updateBox.vue"));
@@ -455,6 +472,16 @@ async function openDevTools() {
 
         .el-input { flex: 1; min-width: 200px; }
       }
+    }
+
+    .modelProviderSettings {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      border: 1px solid var(--el-border-color-light);
+      border-radius: var(--el-border-radius-base);
+
+      :deep(.el-tabs__header) { margin-bottom: 12px; }
     }
 
     .storageManager {

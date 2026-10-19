@@ -25,7 +25,7 @@
               <component
                 :is="activePanel.component"
                 v-bind="
-                  ['pluginMarket', 'modelChannelCatalog', 'languageModel', 'mediaModel', 'usageLogs', 'personalization', 'deviceLink'].includes(activePanel.id) ? { visible } : {}
+                  ['pluginMarket', 'modelChannelCatalog', 'usageLogs', 'personalization', 'deviceLink'].includes(activePanel.id) ? { visible } : {}
                 " />
             </keep-alive>
           </transition>
@@ -42,14 +42,12 @@ import { isMobile } from "@/lib/platform";
 import {
   IconPalette,
   IconSettings,
-  IconPhotoVideo,
   IconBuildingStore,
   IconInfoCircle,
   IconCode,
   IconShieldLock,
   IconPlugConnected,
   IconUserCog,
-  IconSubtitlesAi,
   IconDevices,
   IconHistory,
   IconDatabaseSearch,
@@ -72,13 +70,6 @@ const settingsPanels = [
     groupLabel: "模型",
     component: defineAsyncComponent(() => import("./panels/modelChannelCatalog.vue")),
   },
-  {
-    id: "languageModel",
-    label: "文本模型",
-    icon: IconSubtitlesAi,
-    component: defineAsyncComponent(() => import("./panels/languageModel/index.vue")),
-  },
-  { id: "mediaModel", label: "媒体模型", icon: IconPhotoVideo, component: defineAsyncComponent(() => import("./panels/mediaModel/index.vue")) },
   {
     id: "pluginMarket",
     label: "插件市场",

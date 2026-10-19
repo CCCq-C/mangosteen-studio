@@ -115,3 +115,26 @@
 4. Restart once to verify automatic session restoration and pricing snapshot fallback behavior; distinguish source/runtime checks from installed-client acceptance.
 5. Build and replace the local macOS app only after source verification succeeds, then verify the installed app visually.
 6. Inspect Git status and diff, ensuring `packages/startup/assets/startup 2.json` remains untouched; push the completed branch to the configured private remote and verify the remote SHA.
+
+### Task 7: Preserve group synchronization after re-login and isolate supplier settings
+
+**Files:**
+- Modify: `apps/server/src/utils/aihubkit/account.ts`
+- Modify: `apps/server/src/utils/aihubkit/catalog.ts`
+- Modify: `apps/web/src/lib/aihubkitCatalog.ts`
+- Modify: `apps/web/src/components/settings/modelCatalog.vue`
+- Modify: `apps/web/src/components/settings/index.vue`
+- Modify: `apps/web/src/components/settings/panels/developer/index.vue`
+- Modify: `apps/web/src/components/settings/panels/languageModel/index.vue`
+- Modify: `apps/web/src/components/settings/panels/mediaModel/index.vue`
+- Modify: `apps/web/src/components/settings/panels/mediaModel/addCustomProviderDialog.vue`
+
+**Steps:**
+
+1. Preserve stored group API keys only when the newly authenticated user ID matches the stored user ID; a different account starts with no inherited group keys. Merge concurrent token refreshes and briefly reuse the refreshed token so catalog and pricing requests cannot invalidate one another.
+2. Fetch all groups that already have keys, create at most one missing or replacement key per pass, persist that key immediately, and report synchronized versus total group counts without exposing keys.
+3. Retry a partial catalog after 15 seconds on both server and Web, keep the healthy interval at ten minutes, and show automatic progress instead of requiring a manual partial-sync action.
+4. Remove text/media model entries from the normal settings sidebar and expose both existing supplier panels inside the confirmed Developer Options panel.
+5. Hide TF Router from both supplier lists. Route the single “Add Supplier” action directly to the blank custom text form or the custom media adapter import flow; do not render bundled provider templates.
+6. Use repository-approved one-off assertions plus Server/Web typechecks and the production build; do not add test or self-check files.
+7. Install the macOS build, verify same-account re-login/catalog progress and supplier UI without launching paid generation, then commit and push only intended files to the private GitHub remote.

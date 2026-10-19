@@ -32,6 +32,8 @@ export interface AihubkitCatalogModel {
 export interface AihubkitCatalog {
   revision: number;
   syncedAt: number;
+  totalGroupCount: number;
+  syncedGroupCount: number;
   groups: AihubkitCatalogGroup[];
   models: AihubkitCatalogModel[];
   unknownModelCount: number;
@@ -57,6 +59,7 @@ interface CatalogState extends AihubkitCatalog {
 }
 
 const catalogMaxAge = 10 * 60_000;
+const partialRefreshDelay = 15_000;
 let currentCatalog: CatalogState | undefined;
 let refreshRequest: Promise<AihubkitCatalog> | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -152,6 +155,8 @@ function publicCatalog(state: CatalogState): AihubkitCatalog {
   return {
     revision: state.revision,
     syncedAt: state.syncedAt,
+    totalGroupCount: state.totalGroupCount,
+    syncedGroupCount: state.syncedGroupCount,
     groups: state.groups.map(group => ({ ...group })),
     models: state.models.map(model => ({
       ...model,
@@ -172,7 +177,7 @@ function publicCatalog(state: CatalogState): AihubkitCatalog {
   };
 }
 
-function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, partial: boolean, pricing?: AihubkitPricingSnapshot) {
+function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, totalGroupCount: number, partial: boolean, pricing?: AihubkitPricingSnapshot) {
   const models = new Map<string, AihubkitCatalogModel>();
   const candidates = new Map<string, { group: string; apiKey: string }[]>();
   const unknownModels = new Set<string>();
@@ -215,6 +220,8 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
     userId,
     revision: (currentCatalog?.userId === userId ? currentCatalog.revision : 0) + 1,
     syncedAt: Date.now(),
+    totalGroupCount,
+    syncedGroupCount: groupCatalogs.size,
     groups: [...groupCatalogs.values()].map(group => ({
       ...group.info,
       ...(pricing?.groupLabels[group.info.id] ? { label: pricing.groupLabels[group.info.id] } : {}),
@@ -231,11 +238,11 @@ function buildCatalog(userId: number, groupCatalogs: Map<string, GroupCatalog>, 
   } satisfies CatalogState;
 }
 
-function scheduleRefresh() {
+function scheduleRefresh(partial: boolean) {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
     void refreshAihubkitCatalog().catch(() => {});
-  }, catalogMaxAge);
+  }, partial ? partialRefreshDelay : catalogMaxAge);
   refreshTimer.unref?.();
 }
 
@@ -257,24 +264,52 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
   let successfulGroups = 0;
   let firstFailure: unknown;
   let partial = false;
+  let createdGroupKey = false;
+  let savedKeys = JSON.stringify(access.groupApiKeys);
 
-  // ACT: 分组顺序同步，避免首次登录时并发创建大量令牌和模型请求。
-  for (const info of groups) {
+  async function persistKeys() {
+    const serialized = JSON.stringify(keys);
+    if (serialized === savedKeys) return;
+    await saveGroupApiKeys(access.userId, keys);
+    savedKeys = serialized;
+  }
+
+  // ACT: 先恢复已有分组；每轮最多创建一个密钥，避免触发上游令牌限流。
+  const orderedGroups = [
+    ...groups.filter(info => Boolean(keys[info.id])),
+    ...groups.filter(info => !keys[info.id]),
+  ];
+  for (const info of orderedGroups) {
     let apiKey = keys[info.id] ?? "";
     let created = false;
+    if (!apiKey && createdGroupKey) {
+      partial = true;
+      const cached = previous.get(info.id);
+      if (cached) next.set(info.id, { ...cached, info });
+      continue;
+    }
     try {
       if (!apiKey) {
         apiKey = await createGroupKey(access.accessToken, access.userId, info.id);
         keys[info.id] = apiKey;
         created = true;
+        createdGroupKey = true;
+        await persistKeys();
       }
       let models: string[];
       try {
         models = await readGroupModels(apiKey, created);
       } catch (error) {
         if (!(error instanceof AihubkitServiceError) || error.status !== 401 || created) throw error;
+        if (createdGroupKey) {
+          delete keys[info.id];
+          await persistKeys();
+          throw error;
+        }
         apiKey = await createGroupKey(access.accessToken, access.userId, info.id);
         keys[info.id] = apiKey;
+        createdGroupKey = true;
+        await persistKeys();
         models = await readGroupModels(apiKey, true);
       }
       next.set(info.id, { info, apiKey, models });
@@ -289,12 +324,12 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
 
   if (groups.length && !successfulGroups) throw firstFailure ?? new AihubkitServiceError(502, "AIHubKit 暂未返回可用模型");
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
-  if (JSON.stringify(keys) !== JSON.stringify(access.groupApiKeys)) await saveGroupApiKeys(access.userId, keys);
+  await persistKeys();
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
   const pricing: AihubkitPricingSnapshot | undefined = await pricingRequest;
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
-  currentCatalog = buildCatalog(access.userId, next, partial, pricing);
-  scheduleRefresh();
+  currentCatalog = buildCatalog(access.userId, next, groups.length, partial || next.size < groups.length, pricing);
+  scheduleRefresh(currentCatalog.partial);
   return publicCatalog(currentCatalog);
 }
 

@@ -31,6 +31,16 @@ interface StoredSession {
 const keychainService = "com.mangosteen.studio";
 const keychainName = "aihubkitSession";
 const affiliateCode = "DlQa";
+const tokenRefreshMaxAge = 60_000;
+let refreshedUserId = 0;
+let refreshedAt = 0;
+let sessionEpoch = 0;
+let sessionRefreshRequest: Promise<StoredSession | null> | undefined;
+
+function markTokenFresh(userId = 0) {
+  refreshedUserId = userId;
+  refreshedAt = userId ? Date.now() : 0;
+}
 
 function sessionCookie(response: Response) {
   const header = response.headers.get("set-cookie") ?? "";
@@ -160,30 +170,52 @@ export async function loginAccount(username: string, password: string) {
   const user = loginAccountData(envelope.data);
   const cookie = sessionCookie(response);
   const token = await refreshToken({ userId: user.id, sessionCookie: cookie });
+  const previousSession = await readStoredSession();
+  sessionEpoch++;
+  sessionRefreshRequest = undefined;
   await writeStoredSession({
     userId: user.id,
     displayName: user.displayName,
     sessionCookie: cookie,
     accessToken: token,
-    groupApiKeys: {},
+    groupApiKeys: previousSession?.userId === user.id ? previousSession.groupApiKeys : {},
   });
+  markTokenFresh(user.id);
   return user;
 }
 
-async function refreshStoredSession() {
+async function synchronizeStoredSession(epoch: number) {
   const session = await readStoredSession();
-  if (!session) return null;
+  if (!session) {
+    markTokenFresh();
+    return null;
+  }
+  if (session.userId === refreshedUserId && Date.now() - refreshedAt < tokenRefreshMaxAge) return session;
   try {
-    session.accessToken = await refreshToken(session);
+    const token = await refreshToken(session);
+    if (epoch !== sessionEpoch) return readStoredSession();
+    session.accessToken = token;
     await writeStoredSession(session);
+    markTokenFresh(session.userId);
     return session;
   } catch (cause) {
     if (cause instanceof AihubkitServiceError && cause.status === 401) {
       await deleteStoredSession();
+      markTokenFresh();
       return null;
     }
     throw cause;
   }
+}
+
+async function refreshStoredSession() {
+  if (sessionRefreshRequest) return sessionRefreshRequest;
+  const request = synchronizeStoredSession(sessionEpoch);
+  const tracked = request.finally(() => {
+    if (sessionRefreshRequest === tracked) sessionRefreshRequest = undefined;
+  });
+  sessionRefreshRequest = tracked;
+  return tracked;
 }
 
 export async function restoreAccount() {
@@ -215,5 +247,8 @@ export async function saveGroupApiKeys(userId: number, keys: Record<string, stri
 }
 
 export async function logoutAccount() {
+  sessionEpoch++;
+  sessionRefreshRequest = undefined;
+  markTokenFresh();
   await deleteStoredSession();
 }

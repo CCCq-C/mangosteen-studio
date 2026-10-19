@@ -8,7 +8,7 @@
           <el-tag v-if="aihubkitCatalog?.pricingStale" size="small" type="warning" effect="plain">使用最近价格</el-tag>
         </div>
         <el-text v-if="aihubkitCatalog" size="small" type="info">
-          {{ totalModels }} 个模型 · {{ totalGroups }} 个渠道 · {{ formatTime(aihubkitCatalog.syncedAt) }} 自动同步
+          {{ totalModels }} 个模型 · {{ syncedGroupCount }} / {{ totalGroupCount }} 个渠道 · {{ formatTime(aihubkitCatalog.syncedAt) }} 自动同步
         </el-text>
         <el-text v-else size="small" type="info">登录后自动同步当前账号可用的渠道、模型与价格。</el-text>
       </div>
@@ -22,7 +22,12 @@
       </el-button>
     </header>
 
-    <el-alert v-if="aihubkitCatalog?.partial" title="本次同步不完整，当前保留并展示已经成功同步的渠道。" type="warning" :closable="false" showIcon />
+    <el-alert
+      v-if="aihubkitCatalog?.partial"
+      :title="`正在补全模型渠道：已同步 ${syncedGroupCount} / ${totalGroupCount}，约 15 秒后继续。`"
+      type="warning"
+      :closable="false"
+      showIcon />
     <el-alert v-if="aihubkitCatalog && !aihubkitCatalog.pricingAvailable" title="价格暂未同步，模型仍可正常使用。" type="warning" :closable="false" showIcon />
     <el-alert
       v-else-if="aihubkitCatalog?.pricingStale"
@@ -131,8 +136,9 @@ const activeGroups = computed(() => (aihubkitCatalog.value?.groups ?? []).flatMa
 const totalModels = computed(() => props.types.reduce((count, type) => count + modelCount(type), 0));
 const totalGroups = computed(() => new Set(props.types.flatMap(type => (aihubkitCatalog.value?.models ?? [])
   .filter(model => model.type === type).flatMap(model => model.groups.map(group => group.id)))).size);
+const syncedGroupCount = computed(() => aihubkitCatalog.value?.syncedGroupCount ?? totalGroups.value);
+const totalGroupCount = computed(() => aihubkitCatalog.value?.totalGroupCount ?? totalGroups.value);
 const showRetry = computed(() => Boolean(aihubkitCatalogError.value
-  || aihubkitCatalog.value?.partial
   || aihubkitCatalog.value && (!aihubkitCatalog.value.pricingAvailable || aihubkitCatalog.value.pricingStale)));
 
 function modelCount(type: AihubkitCatalogModelType) {
@@ -152,8 +158,8 @@ function priceType(kind: AihubkitPriceSummary["kind"]) {
 
 async function refreshCatalog() {
   try {
-    await loadAihubkitCatalog(true);
-    ElMessage.success("模型渠道已同步");
+    const value = await loadAihubkitCatalog(true);
+    ElMessage.success(value.partial ? `已同步 ${value.syncedGroupCount} / ${value.totalGroupCount} 个渠道，将自动继续` : "模型渠道已同步");
   } catch {
     ElMessage.error(aihubkitCatalogError.value || "模型渠道同步失败，请重试");
   }
