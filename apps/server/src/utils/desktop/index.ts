@@ -134,7 +134,7 @@ async function getGiteeUpdateCandidate(): Promise<UpdateCandidate> {
   return {
     source: "gitee",
     baseUrl: `https://gitee.com/Chance-Ccc/mangosteen-studio/releases/download/${tagName}`,
-    downloadUrl: `${updateDownloadUrls.gitee}/tag/${tagName}`,
+    downloadUrl: updateDownloadUrls.gitee,
   };
 }
 

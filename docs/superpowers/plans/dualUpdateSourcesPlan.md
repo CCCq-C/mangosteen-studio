@@ -76,13 +76,13 @@
 - Consumes: `GITEE_TOKEN` 仓库 Secret 与现有构建产物
 - Produces: 同一提交/标签、GitHub Release、Gitee Release、双端附件和 SHA-256 清单
 
-- [ ] **Step 1:** 在上传前为所有构建产物生成唯一 `SHA256SUMS`，并把校验文件加入同一批 Release 附件。
-- [ ] **Step 2:** GitHub Release 完成后，用临时凭据助手将构建提交与正式标签推送到 Gitee，不把 Token 写入 remote URL 或日志。
-- [ ] **Step 3:** 通过 Gitee Releases API 幂等创建或读取同名正式 Release，重跑时只补齐或替换不一致附件。
-- [ ] **Step 4:** 上传同一批产物和 `SHA256SUMS` 到 Gitee，并核对标签提交、附件名称、大小及校验清单。
-- [ ] **Step 5:** 任一 Gitee 步骤失败时让工作流明确失败，但不删除已经成功发布的 GitHub Release，便于安全重跑。
-- [ ] **Step 6:** 用 GitHub Actions 的 YAML/表达式检查和本地脚本语法检查验证工作流结构。
-- [ ] **Step 7:** 提交 `ci: mirror releases to Gitee`。
+- [x] **Step 1:** 在上传前为所有构建产物生成唯一 `SHA256SUMS`，并把校验文件加入同一批 Release 附件。
+- [x] **Step 2:** GitHub Release 完成后，用临时凭据助手将构建提交与正式标签推送到 Gitee，不把 Token 写入 remote URL 或日志。
+- [x] **Step 3:** 通过 Gitee Releases API 幂等创建或读取同名正式 Release，重跑时只补齐或替换不一致附件。
+- [x] **Step 4:** 上传同一批产物和 `SHA256SUMS` 到 Gitee，并核对标签提交、附件名称、大小及校验清单。
+- [x] **Step 5:** 任一 Gitee 步骤失败时让工作流明确失败，但不删除已经成功发布的 GitHub Release，便于安全重跑。
+- [x] **Step 6:** 用 GitHub Actions 的 YAML/表达式检查和本地脚本语法检查验证工作流结构。
+- [x] **Step 7:** 提交 `ci: mirror releases to Gitee`。
 
 ### Task 4: 文档、整体验证与双仓同步
 
