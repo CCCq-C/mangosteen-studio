@@ -24,10 +24,10 @@
 <details>
 <summary><strong>通过网页唤起桌面安装插件</strong></summary>
 
-安装桌面客户端后，网页可通过 `toonflow://install` 请求安装插件。应用会先展示类型、文件名和下载地址，用户确认后再下载与安装。
+安装桌面客户端后，网页可通过 `mangosteen-studio://install` 请求安装插件。应用会先展示类型、文件名和下载地址，用户确认后再下载与安装。
 
 ```ts
-const link = new URL("toonflow://install");
+const link = new URL("mangosteen-studio://install");
 link.searchParams.set("type", "node");
 link.searchParams.set("url", "https://example.com/plugins/exampleNode.umd.js");
 window.location.href = link.href;
@@ -140,7 +140,7 @@ bun run build:desktop
 bun run package:desktop
 ```
 
-安装包输出到 `build/desktop/artifacts/toonflow-<版本>-Setup.exe`。
+安装包输出到 `build/desktop/artifacts/MangosteenStudio-Windows-x64-v<版本>-Setup.exe`。
 
 **macOS**
 
@@ -212,7 +212,7 @@ git push --no-follow-tags origin refs/tags/v2.0.0:refs/tags/v2.0.0
 
 | 平台 | 安装包 | 更新文件 |
 | --- | --- | --- |
-| Windows x64 | `toonflow-<版本号>-Setup.exe` | `stable-win-x64-*` |
+| Windows x64 | `MangosteenStudio-Windows-x64-v<版本号>-Setup.exe` | `stable-win-x64-*` |
 | macOS Intel | DMG | `stable-macos-x64-*` |
 | macOS Apple Silicon | DMG | `stable-macos-arm64-*` |
 
