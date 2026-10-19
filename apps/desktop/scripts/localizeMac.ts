@@ -42,35 +42,37 @@ if (process.env.ELECTROBUN_OS === "macos") {
     // ACT: Electrobun 会在 postBuild 后改写 version.json，再于 postWrap 前生成更新归档。
     // postWrap 阶段签署归档里的完整应用，并同步替换启动外壳内的同一份归档。
     const artifactDir = process.env.ELECTROBUN_ARTIFACT_DIR;
-    if (process.env.ELECTROBUN_WRAPPER_BUNDLE_PATH && artifactDir && existsSync(artifactDir)) {
+    if (artifactDir && existsSync(artifactDir)) {
       const archives = readdirSync(artifactDir).filter((name) => name.endsWith(".app.tar.zst"));
-      if (archives.length !== 1) throw new Error(`macOS 更新归档数量应为 1，实际为 ${archives.length}`);
-      const archivePath = join(artifactDir, archives[0]!);
-      const temporaryDirectory = join(artifactDir, `.signed-${process.pid}`);
-      const temporaryArchive = join(artifactDir, `.signed-${process.pid}.tar.zst`);
-      rmSync(temporaryDirectory, { recursive: true, force: true });
-      rmSync(temporaryArchive, { force: true });
-      mkdirSync(temporaryDirectory);
-      try {
-        await $`tar -xf ${archivePath} -C ${temporaryDirectory}`;
-        const updateBundles = readdirSync(temporaryDirectory, { withFileTypes: true })
-          .filter((entry) => entry.isDirectory() && entry.name.endsWith(".app"));
-        if (updateBundles.length !== 1) throw new Error(`macOS 更新应用数量应为 1，实际为 ${updateBundles.length}`);
-        const updateBundlePath = join(temporaryDirectory, updateBundles[0]!.name);
-        await $`xattr -cr ${updateBundlePath}`;
-        await $`codesign --force --deep --sign - ${updateBundlePath}`;
-        await $`tar -caf ${temporaryArchive} ${basename(updateBundlePath)}`.cwd(temporaryDirectory);
-        renameSync(temporaryArchive, archivePath);
-
-        const wrapperResourceDir = join(bundlePath, "Contents", "Resources");
-        const embeddedArchives = readdirSync(wrapperResourceDir).filter((name) => name.endsWith(".tar.zst"));
-        if (embeddedArchives.length !== 1) throw new Error(`macOS 内嵌归档数量应为 1，实际为 ${embeddedArchives.length}`);
-        copyFileSync(archivePath, join(wrapperResourceDir, embeddedArchives[0]!));
-      } finally {
+      if (archives.length > 0) {
+        if (archives.length !== 1) throw new Error(`macOS 更新归档数量应为 1，实际为 ${archives.length}`);
+        const archivePath = join(artifactDir, archives[0]!);
+        const temporaryDirectory = join(artifactDir, `.signed-${process.pid}`);
+        const temporaryArchive = join(artifactDir, `.signed-${process.pid}.tar.zst`);
         rmSync(temporaryDirectory, { recursive: true, force: true });
         rmSync(temporaryArchive, { force: true });
+        mkdirSync(temporaryDirectory);
+        try {
+          await $`tar -xf ${archivePath} -C ${temporaryDirectory}`;
+          const updateBundles = readdirSync(temporaryDirectory, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && entry.name.endsWith(".app"));
+          if (updateBundles.length !== 1) throw new Error(`macOS 更新应用数量应为 1，实际为 ${updateBundles.length}`);
+          const updateBundlePath = join(temporaryDirectory, updateBundles[0]!.name);
+          await $`xattr -cr ${updateBundlePath}`;
+          await $`codesign --force --deep --sign - ${updateBundlePath}`;
+          await $`tar -caf ${temporaryArchive} ${basename(updateBundlePath)}`.cwd(temporaryDirectory);
+          renameSync(temporaryArchive, archivePath);
+
+          const wrapperResourceDir = join(bundlePath, "Contents", "Resources");
+          const embeddedArchives = readdirSync(wrapperResourceDir).filter((name) => name.endsWith(".tar.zst"));
+          if (embeddedArchives.length !== 1) throw new Error(`macOS 内嵌归档数量应为 1，实际为 ${embeddedArchives.length}`);
+          copyFileSync(archivePath, join(wrapperResourceDir, embeddedArchives[0]!));
+        } finally {
+          rmSync(temporaryDirectory, { recursive: true, force: true });
+          rmSync(temporaryArchive, { force: true });
+        }
+        console.log(`已重签并重建 macOS 更新归档：${archivePath}`);
       }
-      console.log(`已重签并重建 macOS 更新归档：${archivePath}`);
     }
 
     await $`xattr -cr ${bundlePath}`;
