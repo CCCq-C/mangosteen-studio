@@ -2,12 +2,16 @@ import { basename } from "node:path";
 import { file } from "@toonflow/file/bun";
 import type { Request } from "express";
 import conf from "@/utils/conf";
-import type { DesktopRuntime, desktopUpdateAttempt, updateSnapshot } from "@/types/desktop";
+import type { DesktopRuntime, DesktopUpdateSource, ResolvedDesktopUpdateSource, desktopUpdateAttempt, updateSnapshot } from "@/types/desktop";
 
 const updateBaseUrls = {
-  official: "https://github.com/CCCq-C/mangosteen-studio/releases/latest/download",
   github: "https://github.com/CCCq-C/mangosteen-studio/releases/latest/download",
 };
+const updateDownloadUrls = {
+  gitee: "https://gitee.com/Chance-Ccc/mangosteen-studio/releases",
+  github: "https://github.com/CCCq-C/mangosteen-studio/releases/latest",
+};
+const giteeLatestReleaseUrl = "https://gitee.com/api/v5/repos/Chance-Ccc/mangosteen-studio/releases/latest";
 const updateRuntimeId = crypto.randomUUID();
 let cancelledUpdateAttempt: string | undefined;
 
@@ -17,6 +21,7 @@ function getInstallFailure(local: Awaited<ReturnType<DesktopRuntime["updater"]["
   if (!attempt) return;
   if (typeof attempt !== "object" || ![attempt.attemptId, attempt.runtimeId, attempt.channel, attempt.targetVersion, attempt.targetHash]
     .every(value => typeof value === "string" && value.length > 0 && value.length <= 512)
+    || (attempt.downloadUrl !== undefined && !isValidUpdateUrl(attempt.downloadUrl))
     || (attempt.failure !== undefined && typeof attempt.failure !== "string")) {
     try { conf.delete("desktopUpdateAttempt"); }
     catch (error) { console.error("清理无效更新核验记录失败：", error); }
@@ -59,8 +64,20 @@ function getInstallFailure(local: Awaited<ReturnType<DesktopRuntime["updater"]["
     currentVersion: local.version,
     currentHash: local.hash,
     message,
-    downloadUrl: "https://github.com/CCCq-C/mangosteen-studio/releases/latest",
+    downloadUrl: attempt.downloadUrl || updateDownloadUrls.github,
   };
+}
+
+interface UpdateSourceConfig {
+  source: DesktopUpdateSource;
+  key: string;
+  customUrl?: string;
+}
+
+interface UpdateCandidate {
+  source: ResolvedDesktopUpdateSource;
+  baseUrl: string;
+  downloadUrl: string;
 }
 
 interface DesktopState {
@@ -71,8 +88,11 @@ interface DesktopState {
   updateHandoffComplete?: boolean;
   updateError: string;
   updateProgress?: updateSnapshot["updateProgress"];
+  checkedSourceKey?: string;
   checkedBaseUrl?: string;
-  lastBaseUrl?: string;
+  checkedSource?: ResolvedDesktopUpdateSource;
+  checkedDownloadUrl?: string;
+  lastSourceKey?: string;
 }
 
 export function isValidUpdateUrl(value: unknown): value is string {
@@ -81,11 +101,56 @@ export function isValidUpdateUrl(value: unknown): value is string {
   return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password && !url.search && !url.hash;
 }
 
-function getUpdateBaseUrl(): string {
-  const settings = conf.get("settings", {});
-  if (settings.desktopUpdateSource === "github") return updateBaseUrls.github;
-  if (settings.desktopUpdateSource === "custom" && isValidUpdateUrl(settings.desktopUpdateCustomUrl)) return settings.desktopUpdateCustomUrl;
-  return updateBaseUrls.official;
+function getUpdateSourceConfig(): UpdateSourceConfig {
+  const settings = conf.get("settings", {}) as Record<string, unknown>;
+  if (settings.desktopUpdateSource === "gitee") return { source: "gitee", key: "gitee" };
+  if (settings.desktopUpdateSource === "github") return { source: "github", key: "github" };
+  if (settings.desktopUpdateSource === "custom" && isValidUpdateUrl(settings.desktopUpdateCustomUrl)) {
+    return { source: "custom", key: `custom:${settings.desktopUpdateCustomUrl}`, customUrl: settings.desktopUpdateCustomUrl };
+  }
+  // ACT: 旧版的 official 与未配置状态都迁移为“国内优先、GitHub 回退”。
+  return { source: "auto", key: "auto" };
+}
+
+function getDefaultDownloadUrl(config: UpdateSourceConfig) {
+  if (config.source === "custom") return config.customUrl!;
+  if (config.source === "github") return updateDownloadUrls.github;
+  return updateDownloadUrls.gitee;
+}
+
+async function getGiteeUpdateCandidate(): Promise<UpdateCandidate> {
+  const response = await fetch(giteeLatestReleaseUrl, {
+    headers: { Accept: "application/json" },
+    redirect: "error",
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error(`最新版本接口返回 HTTP ${response.status}`);
+  const release: unknown = await response.json().catch(() => { throw new Error("最新版本接口未返回有效 JSON"); });
+  if (!release || typeof release !== "object" || Array.isArray(release)) throw new Error("最新版本接口返回格式不正确");
+  const { tag_name: tagName, prerelease, draft } = release as Record<string, unknown>;
+  if (draft === true || prerelease === true || typeof tagName !== "string" || !/^v\d+\.\d+\.\d+$/.test(tagName)) {
+    throw new Error("最新版本不是有效的正式版本");
+  }
+  return {
+    source: "gitee",
+    baseUrl: `https://gitee.com/Chance-Ccc/mangosteen-studio/releases/download/${tagName}`,
+    downloadUrl: `${updateDownloadUrls.gitee}/tag/${tagName}`,
+  };
+}
+
+function getUpdateCandidateFactories(config: UpdateSourceConfig): (() => Promise<UpdateCandidate>)[] {
+  const github = async (): Promise<UpdateCandidate> => ({ source: "github", baseUrl: updateBaseUrls.github, downloadUrl: updateDownloadUrls.github });
+  if (config.source === "auto") return [getGiteeUpdateCandidate, github];
+  if (config.source === "gitee") return [getGiteeUpdateCandidate];
+  if (config.source === "github") return [github];
+  return [async () => ({ source: "custom", baseUrl: config.customUrl!, downloadUrl: config.customUrl! })];
+}
+
+function clearCheckedUpdate(state: DesktopState) {
+  state.checkedSourceKey = undefined;
+  state.checkedBaseUrl = undefined;
+  state.checkedSource = undefined;
+  state.checkedDownloadUrl = undefined;
 }
 
 async function withUpdateSource<T>(updater: DesktopRuntime["updater"], updateBaseUrl: string, run: () => Promise<T>) {
@@ -105,7 +170,7 @@ async function assertUpdateVersion(updater: DesktopRuntime["updater"], state: De
   if (!version) return;
   const local = await updater.getLocalInfo();
   if (Bun.semver.order(version, local.version) >= 0) return;
-  state.checkedBaseUrl = undefined;
+  clearCheckedUpdate(state);
   throw new Error(`更新源版本 ${version} 早于当前版本 ${local.version}，已阻止降级`);
 }
 
@@ -142,18 +207,21 @@ export async function getDesktopUpdate(req: Request): Promise<updateSnapshot> {
   const { version, channel, hash } = local;
   // ACT: Intel 1.18.1 首次检查前没有状态，旧清单也可能缺少状态字段。
   const update = updater.updateInfo();
-  const updateBaseUrl = getUpdateBaseUrl();
-  const validUpdate = state.checkedBaseUrl === updateBaseUrl;
+  const sourceConfig = getUpdateSourceConfig();
+  const validUpdate = state.checkedSourceKey === sourceConfig.key && !!state.checkedBaseUrl;
   const applyError = state.applyingUpdate && state.updateHandoffComplete ? update?.error : undefined;
   const installFailure = getInstallFailure(local, applyError);
   if (applyError) state.applyingUpdate = false;
   // ACT: 安装失败跨重启保留，不被切换更新源或普通联网错误覆盖。
-  const error = installFailure?.message || (state.lastBaseUrl === updateBaseUrl ? state.updateError || (validUpdate ? update?.error || "" : "") : "") || update?.installError || "";
+  const error = installFailure?.message || (state.lastSourceKey === sourceConfig.key ? state.updateError || (validUpdate ? update?.error || "" : "") : "") || update?.installError || "";
   return {
     version, channel, hash,
     latestVersion: validUpdate ? update?.version || "" : "",
     latestHash: validUpdate ? update?.hash || "" : "",
     error,
+    updateSource: sourceConfig.source,
+    resolvedUpdateSource: validUpdate ? state.checkedSource : undefined,
+    downloadUrl: installFailure?.downloadUrl || (validUpdate ? state.checkedDownloadUrl! : getDefaultDownloadUrl(sourceConfig)),
     installFailure,
     updateAvailable: !installFailure && validUpdate && (update?.updateAvailable ?? false),
     updateReady: !installFailure && validUpdate && (update?.updateReady ?? false),
@@ -170,17 +238,30 @@ export async function checkDesktopUpdate(req: Request): Promise<void> {
     throw Object.assign(new Error("更新操作正在执行，请稍后再试。"), { status: 409 });
   state.checkingUpdate = true;
   state.updateError = "";
-  const updateBaseUrl = getUpdateBaseUrl();
-  state.checkedBaseUrl = undefined;
-  state.lastBaseUrl = updateBaseUrl;
+  const sourceConfig = getUpdateSourceConfig();
+  clearCheckedUpdate(state);
+  state.lastSourceKey = sourceConfig.key;
+  const errors: string[] = [];
   try {
-    state.updateError = (await withUpdateSource(updater, updateBaseUrl, () => updater.checkForUpdate())).error || "";
-    if (!state.updateError) {
-      await assertUpdateVersion(updater, state);
-      state.checkedBaseUrl = updateBaseUrl;
+    for (const resolveCandidate of getUpdateCandidateFactories(sourceConfig)) {
+      let candidate: UpdateCandidate | undefined;
+      try {
+        candidate = await resolveCandidate();
+        const result = await withUpdateSource(updater, candidate.baseUrl, () => updater.checkForUpdate());
+        if (result.error) throw new Error(result.error);
+        state.checkedSourceKey = sourceConfig.key;
+        state.checkedBaseUrl = candidate.baseUrl;
+        state.checkedSource = candidate.source;
+        state.checkedDownloadUrl = candidate.downloadUrl;
+        await assertUpdateVersion(updater, state);
+        return;
+      } catch (error) {
+        clearCheckedUpdate(state);
+        const source = candidate?.source === "gitee" || !candidate && resolveCandidate === getGiteeUpdateCandidate ? "Gitee" : candidate?.source === "github" ? "GitHub" : "自定义更新源";
+        errors.push(`${source}：${error instanceof Error ? error.message : String(error)}`);
+      }
     }
-  } catch (error) {
-    state.updateError = String(error);
+    state.updateError = errors.join("；") || "更新检查失败";
   } finally {
     state.checkingUpdate = false;
   }
@@ -193,8 +274,9 @@ export async function downloadDesktopUpdate(req: Request): Promise<void> {
     throw Object.assign(new Error("当前客户端不支持应用内更新，请下载安装包。"), { status: 400 });
   if (state.checkingUpdate || state.downloadingUpdate || state.applyingUpdate)
     throw Object.assign(new Error("更新操作正在执行，请稍后再试。"), { status: 409 });
-  const updateBaseUrl = getUpdateBaseUrl();
-  if (state.checkedBaseUrl !== updateBaseUrl)
+  const sourceConfig = getUpdateSourceConfig();
+  const updateBaseUrl = state.checkedBaseUrl;
+  if (!updateBaseUrl || state.checkedSourceKey !== sourceConfig.key)
     throw Object.assign(new Error("更新源已切换，请重新检查更新。"), { status: 400 });
   if (!updater.updateInfo()?.updateAvailable)
     throw Object.assign(new Error("请先检查并确认有可用更新。"), { status: 400 });
@@ -238,8 +320,9 @@ export async function applyDesktopUpdate(req: Request): Promise<void> {
     throw Object.assign(new Error("当前客户端不支持应用内更新，请下载安装包。"), { status: 400 });
   if (state.checkingUpdate || state.downloadingUpdate || state.applyingUpdate)
     throw Object.assign(new Error("更新操作正在执行，请稍后再试。"), { status: 409 });
-  const updateBaseUrl = getUpdateBaseUrl();
-  if (state.checkedBaseUrl !== updateBaseUrl)
+  const sourceConfig = getUpdateSourceConfig();
+  const updateBaseUrl = state.checkedBaseUrl;
+  if (!updateBaseUrl || state.checkedSourceKey !== sourceConfig.key)
     throw Object.assign(new Error("更新源已切换，请重新检查更新。"), { status: 400 });
   if (!updater.updateInfo()?.updateReady)
     throw Object.assign(new Error("请先下载更新。"), { status: 400 });
@@ -252,7 +335,10 @@ export async function applyDesktopUpdate(req: Request): Promise<void> {
     const local = await updater.getLocalInfo();
     const target = updater.updateInfo();
     if (!target?.version || !target.hash) throw new Error("更新包缺少目标版本或构建号，请重新下载。");
-    attempt = { attemptId: crypto.randomUUID(), runtimeId: updateRuntimeId, channel: local.channel, targetVersion: target.version, targetHash: target.hash };
+    attempt = {
+      attemptId: crypto.randomUUID(), runtimeId: updateRuntimeId, channel: local.channel,
+      targetVersion: target.version, targetHash: target.hash, downloadUrl: state.checkedDownloadUrl,
+    };
     // ACT: SDK 可能直接退出进程，必须在交接前写入 app 外的数据目录。
     conf.set("desktopUpdateAttempt", attempt);
     await withUpdateSource(updater, updateBaseUrl, () => updater.applyUpdate!());

@@ -39,13 +39,13 @@
 - Consumes: `desktopUpdateSource = auto | gitee | github | custom`
 - Produces: Gitee Release 解析、检查阶段回退、下载/安装阶段固定源、当前实际来源快照
 
-- [ ] **Step 1:** 把默认来源从旧 `official` 归一化为 `auto`，保留旧值兼容迁移，并扩展设置校验枚举。
-- [ ] **Step 2:** 调用 Gitee 公开 latest Release 接口，只接受正式 `vX.Y.Z` 标签并生成固定下载目录；设置连接和响应超时。
-- [ ] **Step 3:** 检查更新时按逻辑源生成候选目录；`auto` 依次尝试 Gitee、GitHub，其余来源只尝试一次。
-- [ ] **Step 4:** 在状态中同时记录逻辑源键与实际目录；下载、安装和快照校验只使用检查成功时固定的目录。
-- [ ] **Step 5:** 在更新快照中返回当前实际来源及手动下载页，安装失败提示不再写死 GitHub。
-- [ ] **Step 6:** 执行 `bun run --filter '@toonflow/server' typecheck`，期望退出码 0。
-- [ ] **Step 7:** 提交 `feat: add resilient desktop update sources`。
+- [x] **Step 1:** 把默认来源从旧 `official` 归一化为 `auto`，保留旧值兼容迁移，并扩展设置校验枚举。
+- [x] **Step 2:** 调用 Gitee 公开 latest Release 接口，只接受正式 `vX.Y.Z` 标签并生成固定下载目录；设置连接和响应超时。
+- [x] **Step 3:** 检查更新时按逻辑源生成候选目录；`auto` 依次尝试 Gitee、GitHub，其余来源只尝试一次。
+- [x] **Step 4:** 在状态中同时记录逻辑源键与实际目录；下载、安装和快照校验只使用检查成功时固定的目录。
+- [x] **Step 5:** 在更新快照中返回当前实际来源及手动下载页，安装失败提示不再写死 GitHub。
+- [x] **Step 6:** 执行 `bun run --filter '@toonflow/server' typecheck`，期望退出码 0。
+- [x] **Step 7:** 提交 `feat: add resilient desktop update sources`。
 
 ### Task 2: 接入启动检查与更新源界面
 

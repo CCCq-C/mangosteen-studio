@@ -1,12 +1,16 @@
 export type PluginInstallType = "node" | "tool" | "skill" | "provider" | "agent" | "ext";
 export type PluginInstallRequest = { type: PluginInstallType; url: string; fileName: string };
 
+export type DesktopUpdateSource = "auto" | "gitee" | "github" | "custom";
+export type ResolvedDesktopUpdateSource = Exclude<DesktopUpdateSource, "auto">;
+
 export type desktopUpdateAttempt = {
   attemptId: string;
   runtimeId: string;
   channel: string;
   targetVersion: string;
   targetHash: string;
+  downloadUrl?: string;
   failure?: string;
 };
 
@@ -17,6 +21,9 @@ export type updateSnapshot = {
   latestVersion: string;
   latestHash: string;
   error: string;
+  updateSource: DesktopUpdateSource;
+  resolvedUpdateSource?: ResolvedDesktopUpdateSource;
+  downloadUrl: string;
   updateAvailable: boolean;
   updateReady: boolean;
   updating: boolean;
