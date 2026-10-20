@@ -2,6 +2,7 @@
   <div class="pluginMarket">
     <div class="marketToolbar">
       <nav class="marketNav" aria-label="插件列表">
+        <button class="navButton" type="button" :aria-pressed="activeTab === 'community'" @click="activeTab = 'community'">官方社区</button>
         <button class="navButton" type="button" :aria-pressed="activeTab === 'installed'" @click="activeTab = 'installed'">已安装</button>
         <button class="navButton" type="button" :aria-pressed="activeTab === 'ffmpeg'" @click="activeTab = 'ffmpeg'">FFmpeg</button>
       </nav>
@@ -18,7 +19,7 @@
           </template>
         </template>
       </div>
-      <div v-if="activeTab !== 'ffmpeg'" class="typeFilters" role="group" aria-label="插件类型">
+      <div v-if="activeTab === 'installed'" class="typeFilters" role="group" aria-label="插件类型">
         <button class="filterButton" type="button" :aria-pressed="selectedType === 'all'" @click="selectedType = 'all'">
           全部
           <span v-if="activeTab === 'installed' && installedCounts.all !== undefined" class="filterCount">{{ installedCounts.all }}</span>
@@ -35,47 +36,22 @@
           {{ category.label }}
           <span v-if="activeTab === 'installed' && installedCounts[type] !== undefined" class="filterCount">{{ installedCounts[type] }}</span>
         </button>
-        <div v-if="isMarketTab" class="personalFilters" role="group" aria-label="我的插件">
-          <button class="filterButton" type="button" :aria-pressed="selectedType === 'collection'" @click="selectedType = 'collection'">收藏</button>
-          <button class="filterButton" type="button" :aria-pressed="selectedType === 'my'" @click="selectedType = 'my'">我的</button>
-        </div>
       </div>
-      <form v-if="activeTab !== 'ffmpeg'" class="marketSearch" role="search" @submit.prevent="applySearch">
+      <form v-if="activeTab === 'installed'" class="marketSearch" role="search" @submit.prevent="applySearch">
         <el-input v-model="searchQuery" size="small" placeholder="搜索插件" aria-label="搜索插件" clearable @clear="applySearch" />
         <el-button size="small" type="primary" nativeType="submit">搜索</el-button>
       </form>
     </div>
 
     <ffmpeg v-if="activeTab === 'ffmpeg'" :visible />
+    <communityPanel v-else-if="activeTab === 'community'" :visible="visible && activeTab === 'community'" />
     <template v-else>
-      <template v-if="activeTab === 'installed'">
-        <el-alert v-for="message in visibleLoadErrors" :key="message" class="loadError" :title="message" type="error" :closable="false" showIcon />
-      </template>
-      <el-card v-else-if="marketNeedsKey" class="marketKey" shadow="never">
-        <el-text size="small">{{ marketError }}</el-text>
-        <form class="keyForm" @submit.prevent="saveMarketKey">
-          <el-input
-            v-model="draftKey"
-            type="password"
-            showPassword
-            autocomplete="off"
-            :maxlength="8192"
-            placeholder="填写 TF-Router API Key"
-            aria-label="TF-Router API Key"
-            :disabled="savingKey" />
-          <el-button type="primary" nativeType="submit" :loading="savingKey" :disabled="!draftKey.trim()">保存并继续</el-button>
-        </form>
-        <el-text v-if="keyError" type="danger" size="small" role="alert">{{ keyError }}</el-text>
-        <el-link href="https://api.toonflow.net/" target="_blank" rel="noopener noreferrer" type="primary">前往 TF-Router 获取 API Key</el-link>
-      </el-card>
-      <el-alert v-else-if="marketError" class="loadError" :title="marketError" type="error" :closable="false" showIcon>
-        <el-button size="small" @click="marketRefreshKey++">重试</el-button>
-      </el-alert>
+      <el-alert v-for="message in visibleLoadErrors" :key="message" class="loadError" :title="message" type="error" :closable="false" showIcon />
 
       <div
         class="pluginList"
-        :aria-label="`${selectedType === 'collection' ? '收藏' : selectedType === 'my' ? '我的' : tabs[activeTab]}列表`"
-        :aria-busy="activeTab === 'installed' ? loading : marketLoading">
+        aria-label="已安装插件列表"
+        :aria-busy="loading">
         <el-card
           v-for="plugin in visiblePlugins"
           :key="plugin.key"
@@ -116,44 +92,7 @@
             <span v-if="plugin.author" class="pluginAuthor">{{ displayAuthor(plugin.author) }}</span>
             <span v-if="plugin.version" class="pluginVersion" type="info" size="small" effect="plain">v{{ plugin.version }}</span>
           </div>
-          <div v-if="isMarketTab" class="pluginFooter" @click.stop>
-            <el-text v-if="installLabel(plugin) === '已安装'" type="info" size="small">已安装</el-text>
-            <el-popconfirm
-              v-else-if="pluginTypes[plugin.type].path"
-              :title="`${translate(installLabel(plugin))}${pluginTypes[plugin.type].label}“${plugin.displayName}”（${plugin.fileName}）？`"
-              width="280"
-              :confirmButtonText="translate(installLabel(plugin))"
-              cancelButtonText="取消"
-              @confirm="installMarketPlugin(plugin)">
-              <template #reference>
-                <el-button
-                  size="small"
-                  type="primary"
-                  :loading="pendingPlugins.has(plugin.key)"
-                  :disabled="loading || pendingPlugins.has(plugin.key)"
-                  :aria-label="`${translate(installLabel(plugin))} ${plugin.displayName}`">
-                  {{ translate(installLabel(plugin)) }}
-                </el-button>
-              </template>
-            </el-popconfirm>
-            <el-text v-else type="info" size="small">{{ plugin.type === 'agent' && !agentMarketEnabled ? '测试阶段，暂未开放' : '暂不支持安装' }}</el-text>
-            <div class="pluginActions">
-              <component
-                :is="plugin.isCollected ? IconStarFilled : IconStar"
-                class="collectionIcon"
-                :size="18"
-                role="button"
-                tabindex="0"
-                :aria-disabled="collectingPlugins.has(plugin.key)"
-                :aria-pressed="plugin.isCollected === true"
-                :aria-label="`${plugin.isCollected ? '取消收藏' : '添加收藏'} ${plugin.displayName}`"
-                :title="plugin.isCollected ? '取消收藏' : '添加收藏'"
-                @click="toggleCollection(plugin)"
-                @keydown.enter.prevent="toggleCollection(plugin)"
-                @keydown.space.prevent="toggleCollection(plugin)" />
-            </div>
-          </div>
-          <div v-else class="pluginFooter pluginControls" @click.stop>
+          <div class="pluginFooter pluginControls" @click.stop>
             <label class="pluginToggle">
               <span>{{ plugin.enabled === false ? "已禁用" : "已启用" }}</span>
               <el-switch
@@ -211,20 +150,8 @@
           </div>
         </el-card>
       </div>
-      <p v-if="activeTab === 'installed' ? loading : marketLoading" class="listStatus" role="status">正在加载插件…</p>
-      <p v-else-if="!visiblePlugins.length && (isMarketTab ? !marketError : !visibleLoadErrors.length)" class="listStatus">
-        {{ activeTab === "installed" ? "暂无符合条件的已安装插件" : selectedType === "collection" ? "暂无符合条件的收藏插件" : selectedType === "my" ? "暂无符合条件的已发布插件" : "未找到相关插件" }}
-      </p>
-      <el-pagination
-        v-if="isMarketTab && !marketError"
-        v-model:currentPage="marketPage"
-        class="marketPagination"
-        :pageSize="marketPageSize"
-        :total="marketTotal"
-        :disabled="marketLoading"
-        :pagerCount="5"
-        layout="total, prev, pager, next"
-        size="small" />
+      <p v-if="loading" class="listStatus" role="status">正在加载插件…</p>
+      <p v-else-if="!visiblePlugins.length && !visibleLoadErrors.length" class="listStatus">暂无符合条件的已安装插件</p>
       <pluginConfigDialog v-if="selectedConfigPlugin" v-model="configVisible" :plugin="selectedConfigPlugin" :canManage="canConfigurePlugin(selectedConfigPlugin)" />
       <extensionAssociationsDialog v-model="associationsVisible" />
       <agentEditorDialog v-if="selectedAgent" :key="selectedAgent.key" :agent="selectedAgent" :canManage="canManageAgents" @saved="refreshInstalled" @closed="selectedAgent = undefined" />
@@ -255,14 +182,9 @@
 <script setup lang="ts">
 import { translate } from "@toonflow/i18n/vue";
 import axios from "axios";
-import parse from "semver/functions/parse";
 import { computed, defineAsyncComponent, markRaw, onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { IconBox, IconBook, IconTool, IconFileText, IconSparkles2, IconUpload, IconShare, IconStar, IconStarFilled, IconLink, IconSettings, IconCopy } from "@tabler/icons-vue";
+import { IconBox, IconBook, IconTool, IconFileText, IconSparkles2, IconUpload, IconShare, IconLink, IconSettings, IconCopy } from "@tabler/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import tf, { getTfApiKey, isTfRouterProvider } from "@/lib/tf";
-import { saveSettings } from "@/stores/settings";
-import tfRouter from "@toonflow/providers/language/tfRouter";
-import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 import saveFile from "@/lib/saveFile";
 import { writeClipboardText } from "@/lib/clipboard";
 import pluginConfigDialog from "./pluginConfigDialog.vue";
@@ -272,6 +194,7 @@ import ffmpeg from "./ffmpeg.vue";
 import agentEditorDialog from "./agentEditorDialog.vue";
 import agentConnectDialog from "./agentConnectDialog.vue";
 import a2aSettingsDialog from "./a2aSettingsDialog.vue";
+import communityPanel from "./communityPanel.vue";
 import type { Plugin, PluginType } from "./types";
 import { installPluginFile } from "../../installPluginFile";
 
@@ -286,39 +209,9 @@ const pluginTypes = {
   tool: { label: "工具", path: "tools", icon: IconTool, tagType: "warning" },
   agent: { label: "Agent", path: agentMarketEnabled ? "agents" : null, icon: IconSparkles2, tagType: "danger" },
 } as const;
-const tabs = { get discover() { return translate("发现插件"); }, get installed() { return translate("已安装"); }, ffmpeg: "FFmpeg" } as const;
-const activeTab = ref<keyof typeof tabs>("installed");
-const isMarketTab = computed(() => activeTab.value === "discover");
-const marketPage = ref(1);
-const marketPageSize = 20;
-const marketTotal = ref(0);
-const selectedTypes = ref<{ discover: PluginType | "all" | "collection" | "my"; installed: PluginType | "all" }>({ discover: "all", installed: "all" });
-const selectedType = computed({
-  get: () => selectedTypes.value[activeTab.value === "installed" ? "installed" : "discover"],
-  set: (type: PluginType | "all" | "collection" | "my") => {
-    if (activeTab.value === "ffmpeg") return;
-    if (type === "collection" || type === "my") {
-      activeTab.value = "discover";
-      selectedTypes.value.discover = type;
-    } else {
-      if (selectedTypes.value[activeTab.value] === type) return;
-      selectedTypes.value[activeTab.value] = type;
-    }
-    if (activeTab.value === "discover") marketPage.value = 1;
-  },
-});
+const activeTab = ref<"community" | "installed" | "ffmpeg">("community");
+const selectedType = ref<PluginType | "all">("all");
 const installedPlugins = ref<Plugin[]>([]);
-const installedByKey = computed(() => new Map(installedPlugins.value.map((plugin) => [plugin.key, plugin])));
-const marketPlugins = ref<Plugin[]>([]);
-const marketLoading = ref(false);
-const marketError = ref("");
-const apiKey = computed(getTfApiKey);
-const marketNeedsKey = ref(false);
-const draftKey = ref("");
-const savingKey = ref(false);
-const keyError = ref("");
-let keyController: AbortController | undefined;
-const marketRefreshKey = ref(0);
 const loading = ref(false);
 const loadErrors = ref<Partial<Record<PluginType, string>>>({});
 const canManageTools = ref(false);
@@ -327,7 +220,6 @@ const selectedAgent = ref<Plugin>();
 const agentConnectVisible = ref(false);
 const a2aSettingsVisible = ref(false);
 const pendingPlugins = ref(new Set<string>());
-const collectingPlugins = ref(new Set<string>());
 const exportingPlugins = ref(new Set<string>());
 const pluginFileInput = ref<HTMLInputElement>();
 const installing = ref(false);
@@ -337,11 +229,6 @@ const refreshInstalled = () => {
 };
 onMounted(() => window.addEventListener("toonflow:plugin-installed", refreshInstalled));
 onBeforeUnmount(() => window.removeEventListener("toonflow:plugin-installed", refreshInstalled));
-onBeforeUnmount(() => keyController?.abort());
-watch(
-  () => [visible, activeTab.value],
-  () => keyController?.abort()
-);
 const selectedConfigPlugin = ref<Plugin>();
 const configVisible = ref(false);
 const selectedPlugin = ref<Plugin>();
@@ -375,7 +262,6 @@ const visibleLoadErrors = computed(() =>
     .map(([, message]) => message)
 );
 const visiblePlugins = computed(() => {
-  if (isMarketTab.value) return marketPlugins.value;
   return installedPlugins.value.filter(
     (plugin) =>
       (selectedType.value === "all" || plugin.type === selectedType.value) &&
@@ -421,92 +307,10 @@ function hasMissingConfig(plugin: Plugin) {
   });
 }
 
-watch(activeTab, () => { marketPage.value = 1; });
-
-watch(
-  () => [visible, activeTab.value, selectedTypes.value.discover, marketPage.value, appliedQuery.value, marketRefreshKey.value, apiKey.value],
-  async (_value, _previous, onCleanup) => {
-    if (!visible || !isMarketTab.value) return;
-    const controller = new AbortController();
-    onCleanup(() => controller.abort());
-    marketLoading.value = true;
-    marketError.value = "";
-    marketPlugins.value = [];
-    marketNeedsKey.value = !apiKey.value;
-    if (marketNeedsKey.value) {
-      marketTotal.value = 0;
-      marketError.value = "填写 TF-Router API Key 后即可浏览插件市场";
-      marketLoading.value = false;
-      return;
-    }
-    try {
-      const pageData = await tf.getPlugIn(
-        {
-          page: marketPage.value,
-          limit: marketPageSize,
-          type: selectedTypes.value.discover,
-          ...(appliedQuery.value ? { searchKeyword: appliedQuery.value } : {}),
-        },
-        { signal: controller.signal }
-      );
-      if (controller.signal.aborted) return;
-      if (
-        !pageData ||
-        !Number.isSafeInteger(pageData.total) ||
-        pageData.total < 0 ||
-        !Array.isArray(pageData.list) ||
-        pageData.list.some(
-          (item) =>
-            !item ||
-            !Number.isSafeInteger(item.id) ||
-            !Object.hasOwn(pluginTypes, item.type) ||
-            typeof item.identifier !== "string" ||
-            !item.identifier.trim() ||
-            typeof item.name !== "string" ||
-            typeof item.link !== "string" ||
-            !item.link.trim() ||
-            typeof item.fileName !== "string" ||
-            !item.fileName.trim()
-        )
-      )
-        throw new Error("插件市场列表格式错误");
-      marketTotal.value = pageData.total;
-      const lastPage = Math.max(1, Math.ceil(pageData.total / marketPageSize));
-      if (marketPage.value > lastPage) {
-        marketPage.value = lastPage;
-        return;
-      }
-      marketPlugins.value = pageData.list.map((item) => ({
-        key: `market:${item.id}`,
-        id: item.id,
-        isCollected: item.isCollected,
-        type: item.type as PluginType,
-        name: item.identifier.trim(),
-        displayName: item.name.trim() || item.identifier.trim(),
-        author: typeof item.supplier === "string" ? item.supplier : "",
-        description: typeof item.desc === "string" ? item.desc : "",
-        url: item.link,
-        fileName: item.fileName.trim(),
-        version: item.version,
-      }));
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        marketTotal.value = 0;
-        marketError.value = errorMessage(error, "加载插件市场失败，请重试");
-        marketNeedsKey.value =
-          marketError.value.includes("用户信息错误") || (axios.isAxiosError(error) && [401, 403].includes(error.response?.status ?? 0));
-        if (marketNeedsKey.value) marketError.value = "TF-Router 用户信息错误，请重新填写 API Key";
-      }
-    } finally {
-      if (!controller.signal.aborted) marketLoading.value = false;
-    }
-  },
-  { immediate: true }
-);
 watch(
   () => [visible, activeTab.value, refreshKey.value],
   async (_value, _previous, onCleanup) => {
-    if (!visible || activeTab.value === "ffmpeg") return;
+    if (!visible || activeTab.value !== "installed") return;
     const controller = new AbortController();
     onCleanup(() => controller.abort());
     loading.value = true;
@@ -549,60 +353,8 @@ watch(
   { immediate: true }
 );
 
-async function saveMarketKey() {
-  const key = draftKey.value
-    .trim()
-    .replace(/^Bearer(?:\s+|$)/i, "")
-    .trim();
-  if (savingKey.value) return;
-  if (!key) {
-    keyError.value = "请输入有效的 TF-Router API Key";
-    return;
-  }
-  const previousKey = apiKey.value;
-  const controller = new AbortController();
-  keyController = controller;
-  savingKey.value = true;
-  keyError.value = "";
-  try {
-    await tf.getPlugIn({ page: 1, limit: 1, type: "all" }, { apiKey: key, signal: controller.signal });
-    if (controller.signal.aborted) return;
-    await saveSettings((current) => {
-      if (controller.signal.aborted) return;
-      const providers = current.customProviders ?? [];
-      if (!Array.isArray(providers)) throw new Error("文本模型配置格式无效");
-      const index = providers.findIndex((item) => typeof item?.id === "string" && isTfRouterProvider(item));
-      if (index < 0 && providers.some((item) => typeof item?.id === "string" && item.id.toLowerCase() === tfRouter.id.toLowerCase())) {
-        throw new Error("存在同名的非官方 TF-router 供应商，请先在文本模型中修改其 ID");
-      }
-      const { id, label, icon, version, apiUrl, protocol, models } = tfRouter;
-      const configs = current.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
-      if (configs !== undefined && (!configs || typeof configs !== "object" || Array.isArray(configs))) throw new Error("媒体供应商配置格式无效");
-      const mediaConfig = configs?.tfRouter;
-      if (mediaConfig !== undefined && (!mediaConfig || typeof mediaConfig !== "object" || Array.isArray(mediaConfig)))
-        throw new Error("TF-router 媒体配置格式无效");
-      return {
-        customProviders:
-          index < 0
-            ? [...providers, { id, label, icon, version, apiUrl, protocol, models, apiKey: key }]
-            : providers.map((item, position) => (position === index ? { ...item, apiKey: key } : item)),
-        mediaProviderConfigs: { ...configs, tfRouter: { ...mediaConfig, apiKey: key } },
-      };
-    });
-    if (controller.signal.aborted) return;
-    invalidateNodeModels("media");
-    draftKey.value = "";
-    if (apiKey.value === previousKey) marketRefreshKey.value++;
-  } catch (error) {
-    if (!controller.signal.aborted) keyError.value = errorMessage(error, "验证或保存失败，请重试");
-  } finally {
-    savingKey.value = false;
-  }
-}
-
 function applySearch() {
   appliedQuery.value = searchQuery.value.trim();
-  marketPage.value = 1;
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -624,55 +376,6 @@ function canEditPlugin(plugin: Plugin) {
     activeTab.value === "installed" &&
     (plugin.type === "node" || plugin.type === "skill" || (plugin.type === "ext" && plugin.canManage === true) || (plugin.type === "tool" && canManageTools.value) || (plugin.type === "agent" && canManageAgents.value))
   );
-}
-
-function installLabel(plugin: Plugin) {
-  const installed = installedByKey.value.get(`${plugin.type}:${plugin.name}`);
-  if (!installed) return "安装";
-  const [current, incoming] = [installed.version, plugin.version].map(value => {
-    const version = parse(value ?? "");
-    if (!version || version.raw.trim().startsWith("v")
-      || version.prerelease.some(part => /^\d+$/.test(String(part)) && !Number.isSafeInteger(Number(part)))) return null;
-    return version;
-  });
-  return current && incoming && incoming.compare(current) > 0 ? "更新" : "已安装";
-}
-
-async function toggleCollection(plugin: Plugin) {
-  if (plugin.id === undefined || collectingPlugins.value.has(plugin.key)) return;
-  const key = apiKey.value;
-  collectingPlugins.value.add(plugin.key);
-  try {
-    const { collected } = await tf.toggleCollection(plugin.id, { apiKey: key });
-    if (apiKey.value !== key) return;
-    const current = marketPlugins.value.find(item => item.id === plugin.id);
-    if (current) current.isCollected = collected;
-    if (selectedType.value === "collection" || marketLoading.value) marketRefreshKey.value++;
-    ElMessage.success(collected ? "收藏成功" : "已取消收藏");
-  } catch (error) {
-    if (apiKey.value === key) ElMessage.error(errorMessage(error, "修改收藏失败，请重试"));
-  } finally {
-    collectingPlugins.value.delete(plugin.key);
-  }
-}
-
-async function installMarketPlugin(plugin: Plugin) {
-  const path = pluginTypes[plugin.type].path;
-  if (!path || !plugin.url || !plugin.fileName || loading.value || pendingPlugins.value.has(plugin.key)) return;
-  const action = installLabel(plugin);
-  if (action === "已安装") return;
-  pendingPlugins.value.add(plugin.key);
-  try {
-    const { data } = await axios.post(`/api/${path}/install`, { url: plugin.url, fileName: plugin.fileName }, { headers: requestHeaders });
-    if (data.code !== 200) throw new Error(data.message || "安装插件失败");
-    window.dispatchEvent(new CustomEvent("toonflow:plugin-installed", { detail: { type: plugin.type, name: data.data.name } }));
-    if (plugin.type === "ext") window.dispatchEvent(new CustomEvent("toonflow:ext-updated", { detail: { name: data.data.name } }));
-    ElMessage.success(action === "更新" ? `${plugin.displayName}已更新` : `${plugin.displayName}已安装`);
-  } catch (error) {
-    ElMessage.error(errorMessage(error, "安装插件失败，请重试"));
-  } finally {
-    pendingPlugins.value.delete(plugin.key);
-  }
 }
 
 async function installFile(event: Event) {
@@ -785,23 +488,6 @@ async function updatePlugin(plugin: Plugin, action: "setEnabled" | "uninstall", 
 
 <style lang="scss" scoped>
 .pluginMarket {
-  .marketKey {
-    margin-bottom: 12px;
-
-    :deep(.el-card__body) {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
-    }
-
-    .keyForm {
-      display: flex;
-      width: 100%;
-      gap: 8px;
-    }
-  }
-
   .marketToolbar {
     position: sticky;
     top: 0;
@@ -872,12 +558,6 @@ async function updatePlugin(plugin: Plugin, action: "setEnabled" | "uninstall", 
       flex-basis: 100%;
       flex-wrap: wrap;
       gap: 6px;
-
-      .personalFilters {
-        display: flex;
-        gap: 6px;
-        margin-left: auto;
-      }
 
       .filterButton {
         display: inline-flex;
@@ -1091,30 +771,9 @@ async function updatePlugin(plugin: Plugin, action: "setEnabled" | "uninstall", 
           .el-button {
             margin-left: 0;
           }
-          .collectionIcon {
-            color: var(--el-text-color-secondary);
-            cursor: pointer;
-
-            &[aria-pressed="true"] {
-              color: #f5c518;
-            }
-            &[aria-disabled="true"] {
-              opacity: 0.5;
-              cursor: wait;
-            }
-            &:focus-visible {
-              outline: 2px solid currentColor;
-              outline-offset: 3px;
-            }
-          }
         }
       }
     }
-  }
-
-  .marketPagination {
-    justify-content: center;
-    margin-top: 16px;
   }
 
   .listStatus {

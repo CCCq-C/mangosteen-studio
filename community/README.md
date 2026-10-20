@@ -4,7 +4,7 @@
 
 每个条目包含：
 
-- `id`：长期稳定且不重复的小写短横线 ID。
+- `id`：长期稳定且不重复的小写短横线 ID；Skill 条目应与 `SKILL.md` 的 `name` 一致，以便客户端识别安装状态。
 - `type`：`skill`、`template` 或 `workflow`。
 - `name`、`description`、`version`、`author`：用户看到的名称、说明、版本和作者。
 - `fileName`：下载文件名；Skill 支持 `.md`、`.zip`、`.tar`、`.tar.gz`、`.tgz`，模板与工作流使用 `.json`。
