@@ -59,7 +59,7 @@ internal static class updateHelper
                 throw new InvalidOperationException("安装目录不完整。");
             string identifier = text(plan, "identifier");
             string channel = text(plan, "channel");
-            if (identifier != "local.toonflow.desktop" || (channel != "stable" && channel != "canary"))
+            if (identifier != "com.mangosteen.studio" || (channel != "stable" && channel != "canary"))
                 throw new InvalidOperationException("更新计划的应用标识或通道无效。");
             version = matching(plan, "version", "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$");
             hash = matching(plan, "hash", "^[a-zA-Z0-9]{1,128}$");
