@@ -164,7 +164,7 @@ jobs:
           const expected = readdirSync("artifacts", { withFileTypes: true })
             .filter(entry => entry.isFile())
             .map(entry => ({ name: entry.name, size: statSync(join("artifacts", entry.name)).size }))
-            .sort((a, b) => a.name.localeCompare(b.name));
+            .sort((a, b) => a.size - b.size || a.name.localeCompare(b.name));
           const attachmentPath = `/releases/${release.id}/attach_files`;
           let attachments = (await request(`${attachmentPath}?page=1&per_page=100&direction=asc`)).data;
           if (!Array.isArray(attachments)) throw new Error("Gitee 附件列表格式错误");
@@ -177,7 +177,9 @@ jobs:
             }
             const upload = spawnSync("curl", [
               "--silent", "--show-error", "--fail-with-body", "--max-time", "1800",
+              "--connect-timeout", "30", "--http1.1", "--header", "Expect:",
               "--request", "POST", "--header", `Authorization: Bearer ${token}`,
+              "--form-string", `access_token=${token}`,
               "--form", `file=@${join("artifacts", file.name)};filename=${file.name}`,
               `${api}${attachmentPath}`,
             ], { encoding: "utf8", timeout: 1810000, maxBuffer: 4 * 1024 * 1024 });
