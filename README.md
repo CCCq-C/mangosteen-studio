@@ -24,15 +24,15 @@
 
 ## 下载安装
 
-当前稳定版为 **v0.1.1**，支持 Apple Silicon（M1/M2/M3/M4）Mac。
+当前稳定版为 **v0.1.2**，支持 Apple Silicon（M1/M2/M3/M4）Mac。
 
-1. 从 [GitHub Releases](https://github.com/CCCq-C/mangosteen-studio/releases/latest) 下载；国内镜像启用后也可从 [Gitee Releases](https://gitee.com/Chance-Ccc/mangosteen-studio/releases) 下载同一版本。
+1. 从 [GitHub Releases](https://github.com/CCCq-C/mangosteen-studio/releases/latest) 下载；国内用户也可从 [Gitee Releases](https://gitee.com/Chance-Ccc/mangosteen-studio/releases) 下载同一版本。
 2. 打开 DMG，将“山竹漫剧”拖入“应用程序”文件夹。
 3. 启动应用并登录，即可查看当前账号可用的模型与渠道。
 
 当前测试版尚未经过 Apple 公证。如果 macOS 首次阻止打开，请前往“系统设置 → 隐私与安全性”，选择“仍要打开”。
 
-v0.1.1 仍采用 GitHub Release 手动下载安装，Gitee 当前只有源码镜像。下一次同时包含更新清单、完整更新包、Developer ID 签名和 Apple 公证的正式版本（至少 v0.1.2）起，客户端会在启动后后台检查：优先使用 Gitee，失败时切换到 GitHub；发现新版本后仍由用户确认下载和安装，不会静默强制升级。`main` 分支可能包含尚未打包发布的开发版本。
+v0.1.2 同时发布到 GitHub 与 Gitee，当前仍采用手动下载安装。由于仓库尚未配置 Developer ID 签名与 Apple 公证凭据，本版本不作为自动更新基线；待后续正式版本同时具备更新清单、完整更新包、签名和公证后，客户端才会启用可验证的自动更新。`main` 分支可能包含尚未打包发布的开发版本。
 
 ## 本地开发
 
