@@ -1,5 +1,6 @@
 import { AihubkitServiceError, requestAihubkitEnvelope, requestAihubkitJson } from "@/utils/aihubkit/client";
 import { getAihubkitAccess, saveGroupApiKeys } from "@/utils/aihubkit/account";
+import { createManagedGroupKey, recoverManagedGroupKeys } from "@/utils/aihubkit/groupKeys";
 import {
   clearAihubkitPricing,
   getAihubkitPriceSummary,
@@ -111,21 +112,6 @@ function modelType(model: string, group: GroupInfo): AihubkitModelType {
   if (/(?:video|seedance|sora|veo|kling|hailuo|minimax[-_. ]?h3|vidu|runway|luma|wan[-_. ]?\d)/i.test(model)) return "video";
   if (/(?:gpt|claude|deepseek|gemini|qwen|glm|moonshot|kimi|codex|grok|mimo|^hy\d|llama|mistral|command[-_. ]?r|doubao|minimax)/i.test(model)) return "language";
   return groupType(group);
-}
-
-async function createGroupKey(accessToken: string, userId: number, group: string) {
-  const { envelope } = await requestAihubkitEnvelope("/api/token/", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "New-Api-User": String(userId),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ name: `山竹漫剧-${group}`, group, unlimited_quota: true }),
-  });
-  const key = text(object(envelope.data)?.key);
-  if (!key) throw new AihubkitServiceError(502, "AIHubKit 未返回分组密钥");
-  return key;
 }
 
 async function wait(milliseconds: number) {
@@ -274,6 +260,12 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
     savedKeys = serialized;
   }
 
+  const missingGroups = groups.filter(info => !keys[info.id]).map(info => info.id);
+  if (missingGroups.length) {
+    Object.assign(keys, await recoverManagedGroupKeys(access.accessToken, access.userId, missingGroups));
+    await persistKeys();
+  }
+
   // ACT: 先恢复已有分组；每轮最多创建一个密钥，避免触发上游令牌限流。
   const orderedGroups = [
     ...groups.filter(info => Boolean(keys[info.id])),
@@ -290,7 +282,7 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
     }
     try {
       if (!apiKey) {
-        apiKey = await createGroupKey(access.accessToken, access.userId, info.id);
+        apiKey = await createManagedGroupKey(access.accessToken, access.userId, info.id);
         keys[info.id] = apiKey;
         created = true;
         createdGroupKey = true;
@@ -300,17 +292,12 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
       try {
         models = await readGroupModels(apiKey, created);
       } catch (error) {
-        if (!(error instanceof AihubkitServiceError) || error.status !== 401 || created) throw error;
-        if (createdGroupKey) {
+        if (!(error instanceof AihubkitServiceError) || error.status !== 401) throw error;
+        if (keys[info.id]) {
           delete keys[info.id];
           await persistKeys();
-          throw error;
         }
-        apiKey = await createGroupKey(access.accessToken, access.userId, info.id);
-        keys[info.id] = apiKey;
-        createdGroupKey = true;
-        await persistKeys();
-        models = await readGroupModels(apiKey, true);
+        throw error;
       }
       next.set(info.id, { info, apiKey, models });
       successfulGroups++;
