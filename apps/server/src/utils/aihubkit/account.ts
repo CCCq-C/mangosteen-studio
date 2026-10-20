@@ -76,6 +76,43 @@ function groupApiKeys(value: unknown) {
   }).slice(0, 500));
 }
 
+function groupKeychainName(userId: number) {
+  return `aihubkitGroupApiKeys.${userId}`;
+}
+
+async function readGroupKeyVault(userId: number) {
+  let value: string | null;
+  try {
+    value = await secrets.get({ service: keychainService, name: groupKeychainName(userId) });
+  } catch {
+    throw new AihubkitServiceError(500, "无法读取系统钥匙串中的模型密钥");
+  }
+  if (!value) return {};
+
+  try {
+    return groupApiKeys(JSON.parse(value));
+  } catch {
+    try {
+      await secrets.delete({ service: keychainService, name: groupKeychainName(userId) });
+    } catch {
+      throw new AihubkitServiceError(500, "无法清理系统钥匙串中损坏的模型密钥");
+    }
+    return {};
+  }
+}
+
+async function writeGroupKeyVault(userId: number, keys: Record<string, string>) {
+  try {
+    await secrets.set({
+      service: keychainService,
+      name: groupKeychainName(userId),
+      value: JSON.stringify(groupApiKeys(keys)),
+    });
+  } catch {
+    throw new AihubkitServiceError(500, "无法把模型密钥写入系统钥匙串");
+  }
+}
+
 function storedSession(value: unknown): StoredSession | undefined {
   if (!value || typeof value !== "object") return;
   const session = value as Partial<StoredSession>;
@@ -171,14 +208,20 @@ export async function loginAccount(username: string, password: string) {
   const cookie = sessionCookie(response);
   const token = await refreshToken({ userId: user.id, sessionCookie: cookie });
   const previousSession = await readStoredSession();
+  const groupKeyVault = await readGroupKeyVault(user.id);
+  const mergedGroupApiKeys = {
+    ...groupKeyVault,
+    ...(previousSession?.userId === user.id ? previousSession.groupApiKeys : {}),
+  };
   sessionEpoch++;
   sessionRefreshRequest = undefined;
+  await writeGroupKeyVault(user.id, mergedGroupApiKeys);
   await writeStoredSession({
     userId: user.id,
     displayName: user.displayName,
     sessionCookie: cookie,
     accessToken: token,
-    groupApiKeys: previousSession?.userId === user.id ? previousSession.groupApiKeys : {},
+    groupApiKeys: mergedGroupApiKeys,
   });
   markTokenFresh(user.id);
   return user;
@@ -220,6 +263,17 @@ async function refreshStoredSession() {
 
 export async function restoreAccount() {
   const session = await refreshStoredSession();
+  if (session) {
+    const mergedGroupApiKeys = {
+      ...await readGroupKeyVault(session.userId),
+      ...session.groupApiKeys,
+    };
+    session.groupApiKeys = mergedGroupApiKeys;
+    await Promise.all([
+      writeGroupKeyVault(session.userId, mergedGroupApiKeys),
+      writeStoredSession(session),
+    ]);
+  }
   return session ? { id: session.userId, displayName: session.displayName } satisfies PublicAccount : null;
 }
 
@@ -243,7 +297,10 @@ export async function saveGroupApiKeys(userId: number, keys: Record<string, stri
   const session = await readStoredSession();
   if (!session || session.userId !== userId) throw new AihubkitServiceError(401, "登录已切换，请重新获取模型");
   session.groupApiKeys = groupApiKeys(keys);
-  await writeStoredSession(session);
+  await Promise.all([
+    writeGroupKeyVault(userId, session.groupApiKeys),
+    writeStoredSession(session),
+  ]);
 }
 
 export async function logoutAccount() {
