@@ -1,5 +1,5 @@
 name: Mirror Existing GitHub Release to Gitee
-run-name: Mirror v${{ inputs.version }} to Gitee
+run-name: Release ${{ inputs.operation }} v${{ inputs.version }}
 
 on:
   workflow_dispatch:
@@ -7,6 +7,14 @@ on:
       version:
         description: 已发布到 GitHub 的版本号（X.Y.Z）
         type: string
+        required: true
+      operation:
+        description: 发布维护操作
+        type: choice
+        options:
+          - mirror
+          - remove-checksum
+        default: mirror
         required: true
 
 permissions:
@@ -17,8 +25,93 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  cleanup:
+    name: 删除两端校验附件
+    if: inputs.operation == 'remove-checksum'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 删除 GitHub 校验附件并更新说明
+        env:
+          GH_TOKEN: ${{ github.token }}
+          releaseVersion: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${releaseVersion#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::版本号必须为 X.Y.Z'
+            exit 1
+          fi
+          tag="v${version}"
+          notes="docs/releases/${tag}.md"
+          test -s "$notes"
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
+          assetIds="$(jq -r '.assets[] | select(.name == "SHA256SUMS") | .id' <<<"$release")"
+          while IFS= read -r assetId; do
+            [[ -z "$assetId" ]] && continue
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${assetId}"
+          done <<<"$assetIds"
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
+          jq -e '.assets | any(.name == "SHA256SUMS") | not' <<<"$release" >/dev/null
+          jq -e '.assets | any(.name | endswith(".dmg"))' <<<"$release" >/dev/null
+
+      - name: 删除 Gitee 校验附件并更新说明
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          releaseVersion: ${{ inputs.version }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from "node:fs";
+
+          const token = process.env.GITEE_TOKEN?.trim();
+          const version = (process.env.releaseVersion ?? "").replace(/^v/, "");
+          if (!token || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("发布凭据或版本无效");
+          const tag = `v${version}`;
+          const api = "https://gitee.com/api/v5/repos/Chance-Ccc/mangosteen-studio";
+          const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+
+          async function request(path, init = {}) {
+            const response = await fetch(`${api}${path}`, {
+              ...init,
+              headers: { ...headers, ...init.headers },
+              redirect: "error",
+              signal: AbortSignal.timeout(30000),
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`Gitee API ${path} 失败（HTTP ${response.status}）：${text.slice(0, 300)}`);
+            return text ? JSON.parse(text) : null;
+          }
+
+          const release = await request(`/releases/tags/${encodeURIComponent(tag)}`);
+          if (!Number.isSafeInteger(release?.id)) throw new Error("Gitee Release 不存在或返回内容无效");
+          const attachmentPath = `/releases/${release.id}/attach_files`;
+          let attachments = await request(`${attachmentPath}?page=1&per_page=100&direction=asc`);
+          if (!Array.isArray(attachments)) throw new Error("Gitee 附件列表格式错误");
+          for (const attachment of attachments.filter(item => item?.name === "SHA256SUMS")) {
+            if (!Number.isSafeInteger(attachment.id)) throw new Error("Gitee 校验附件 ID 无效");
+            await request(`${attachmentPath}/${attachment.id}`, { method: "DELETE" });
+          }
+
+          const body = readFileSync(`docs/releases/${tag}.md`, "utf8");
+          await request(`/releases/${release.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tag_name: tag, name: release.name, body, prerelease: false }),
+          });
+
+          attachments = await request(`${attachmentPath}?page=1&per_page=100&direction=asc`);
+          if (attachments.some(item => item?.name === "SHA256SUMS")) throw new Error("Gitee 校验附件仍然存在");
+          if (!attachments.some(item => typeof item?.name === "string" && item.name.endsWith(".dmg"))) throw new Error("Gitee DMG 安装包缺失");
+          console.log(`Gitee Release ${tag} 已删除校验附件，DMG 保留`);
+          JS
+
   mirror:
     name: 核验并同步 Gitee Release
+    if: inputs.operation == 'mirror'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
