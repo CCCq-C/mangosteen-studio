@@ -47,8 +47,9 @@ jobs:
             if (!/^[0-9a-f]{40}$/.test(release.target_commitish ?? "")) throw new Error("GitHub Release 必须绑定精确提交");
             process.stdout.write(release.target_commitish);
           ')"
-          if [[ "$(git rev-parse HEAD)" != "$commit" ]]; then
-            echo '::error::GitHub Release 不是基于当前默认分支最新提交'
+          sourceCommit="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$commit" "$sourceCommit"; then
+            echo '::error::GitHub Release 提交不属于当前默认分支'
             exit 1
           fi
           mkdir artifacts
@@ -71,7 +72,7 @@ jobs:
           }).sort();
           if (JSON.stringify(checksums) !== JSON.stringify(assets)) throw new Error("SHA256SUMS 没有且仅有全部 Release 产物");
           JS
-          printf 'version=%s\ntag=%s\ncommit=%s\n' "$version" "$tag" "$commit" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\ntag=%s\ncommit=%s\nsourceCommit=%s\n' "$version" "$tag" "$commit" "$sourceCommit" >> "$GITHUB_OUTPUT"
 
       - name: 同步代码与标签到 Gitee
         env:
@@ -79,6 +80,7 @@ jobs:
           GITEE_USERNAME: Chance-Ccc
           releaseTag: ${{ steps.prepare.outputs.tag }}
           releaseCommit: ${{ steps.prepare.outputs.commit }}
+          sourceCommit: ${{ steps.prepare.outputs.sourceCommit }}
         run: |
           set -euo pipefail
           set +x
@@ -100,7 +102,7 @@ jobs:
           remoteMain="$(git ls-remote gitee refs/heads/main | awk '{print $1}')"
           remoteTag="$(git ls-remote gitee "refs/tags/${releaseTag}^{}" | awk '{print $1}')"
           if [[ -z "$remoteTag" ]]; then remoteTag="$(git ls-remote gitee "refs/tags/${releaseTag}" | awk '{print $1}')"; fi
-          if [[ "$remoteMain" != "$releaseCommit" || "$remoteTag" != "$releaseCommit" ]]; then
+          if [[ "$remoteMain" != "$sourceCommit" || "$remoteTag" != "$releaseCommit" ]]; then
             echo '::error::Gitee main 或版本标签与发布提交不一致'
             exit 1
           fi
@@ -143,7 +145,8 @@ jobs:
           const payload = { tag_name: tag, target_commitish: commit, name: `山竹漫剧 ${version}`, body, prerelease: false };
           const releasePath = `/releases/tags/${encodeURIComponent(tag)}`;
           let { response, data: release } = await request(releasePath, {}, true);
-          if (response.status === 404) {
+          // Gitee 对不存在的标签可能返回 HTTP 200 与 JSON null，也可能返回 404。
+          if (response.status === 404 || release === null) {
             ({ data: release } = await request("/releases", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
