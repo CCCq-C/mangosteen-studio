@@ -60,7 +60,9 @@ interface CatalogState extends AihubkitCatalog {
 }
 
 const catalogMaxAge = 10 * 60_000;
-const partialRefreshDelay = 15_000;
+const partialRefreshDelay = 3_000;
+const keyCreationBatchSize = 3;
+const modelReadConcurrency = 4;
 let currentCatalog: CatalogState | undefined;
 let refreshRequest: Promise<AihubkitCatalog> | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -112,6 +114,31 @@ function modelType(model: string, group: GroupInfo): AihubkitModelType {
   if (/(?:video|seedance|sora|veo|kling|hailuo|minimax[-_. ]?h3|vidu|runway|luma|wan[-_. ]?\d)/i.test(model)) return "video";
   if (/(?:gpt|claude|deepseek|gemini|qwen|glm|moonshot|kimi|codex|grok|mimo|^hy\d|llama|mistral|command[-_. ]?r|doubao|minimax)/i.test(model)) return "language";
   return groupType(group);
+}
+
+function selectKeyCreationBatch(groups: GroupInfo[], keys: Record<string, string>) {
+  const missing = groups.filter(group => !keys[group.id]);
+  const selected: GroupInfo[] = [];
+  for (const type of ["language", "image", "video"] satisfies AihubkitModelType[]) {
+    const group = missing.find(candidate => groupType(candidate) === type && !selected.includes(candidate));
+    if (group) selected.push(group);
+  }
+  for (const group of missing) {
+    if (selected.length >= keyCreationBatchSize) break;
+    if (!selected.includes(group)) selected.push(group);
+  }
+  return selected;
+}
+
+async function withConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+  let cursor = 0;
+  async function run() {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      if (item !== undefined) await worker(item);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
 }
 
 async function wait(milliseconds: number) {
@@ -250,7 +277,7 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
   let successfulGroups = 0;
   let firstFailure: unknown;
   let partial = false;
-  let createdGroupKey = false;
+  const createdGroups = new Set<string>();
   let savedKeys = JSON.stringify(access.groupApiKeys);
 
   async function persistKeys() {
@@ -266,52 +293,43 @@ async function synchronizeCatalog(epoch: number, forcePricing = false) {
     await persistKeys();
   }
 
-  // ACT: 先恢复已有分组；每轮最多创建一个密钥，避免触发上游令牌限流。
-  const orderedGroups = [
-    ...groups.filter(info => Boolean(keys[info.id])),
-    ...groups.filter(info => !keys[info.id]),
-  ];
-  for (const info of orderedGroups) {
-    let apiKey = keys[info.id] ?? "";
-    let created = false;
-    if (!apiKey && createdGroupKey) {
-      partial = true;
-      const cached = previous.get(info.id);
-      if (cached) next.set(info.id, { ...cached, info });
-      continue;
-    }
+  const creationBatch = selectKeyCreationBatch(groups, keys);
+  for (let index = 0; index < creationBatch.length; index++) {
+    const info = creationBatch[index];
+    if (!info) continue;
+    if (index) await wait(300);
     try {
-      if (!apiKey) {
-        apiKey = await createManagedGroupKey(access.accessToken, access.userId, info.id);
-        keys[info.id] = apiKey;
-        created = true;
-        createdGroupKey = true;
-        await persistKeys();
-      }
-      let models: string[];
-      try {
-        models = await readGroupModels(apiKey, created);
-      } catch (error) {
-        if (!(error instanceof AihubkitServiceError) || error.status !== 401) throw error;
-        if (keys[info.id]) {
-          delete keys[info.id];
-          await persistKeys();
-        }
-        throw error;
-      }
+      keys[info.id] = await createManagedGroupKey(access.accessToken, access.userId, info.id);
+      createdGroups.add(info.id);
+      await persistKeys();
+    } catch (error) {
+      partial = true;
+      firstFailure ??= error;
+    }
+  }
+
+  const readableGroups = groups.filter(info => Boolean(keys[info.id]));
+  if (groups.some(group => !keys[group.id])) partial = true;
+  await withConcurrency(readableGroups, modelReadConcurrency, async (info) => {
+    const apiKey = keys[info.id] ?? "";
+    try {
+      const models = await readGroupModels(apiKey, createdGroups.has(info.id));
       next.set(info.id, { info, apiKey, models });
       successfulGroups++;
     } catch (error) {
       partial = true;
       firstFailure ??= error;
+      if (error instanceof AihubkitServiceError && error.status === 401) {
+        delete keys[info.id];
+        return;
+      }
       const cached = previous.get(info.id);
       if (cached) next.set(info.id, { ...cached, info, apiKey: apiKey || cached.apiKey });
     }
-  }
+  });
 
-  if (groups.length && !successfulGroups) throw firstFailure ?? new AihubkitServiceError(502, "AIHubKit 暂未返回可用模型");
-  if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
   await persistKeys();
+  if (groups.length && !successfulGroups) throw firstFailure ?? new AihubkitServiceError(502, "AIHubKit 暂未返回可用模型");
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");
   const pricing: AihubkitPricingSnapshot | undefined = await pricingRequest;
   if (epoch !== catalogEpoch) throw new AihubkitServiceError(409, "模型目录同步已失效，请重新刷新");

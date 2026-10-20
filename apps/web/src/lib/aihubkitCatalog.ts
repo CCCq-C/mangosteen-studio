@@ -49,7 +49,7 @@ const catalog = shallowRef<AihubkitCatalog>();
 const loading = ref(false);
 const errorMessage = ref("");
 const catalogRefreshInterval = 10 * 60_000;
-const partialRefreshInterval = 15_000;
+const partialRefreshInterval = 3_000;
 const errorRetryInterval = 60_000;
 let pending: Promise<AihubkitCatalog> | undefined;
 let syncTimer: ReturnType<typeof setTimeout> | undefined;
