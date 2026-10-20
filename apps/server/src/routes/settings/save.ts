@@ -10,7 +10,7 @@ const router = Router();
 
 export default router.put("/", validateFields({ settings: z.record(z.string(), z.json()).and(z.object({
   agentSystemPrompt: z.string().max(maxSystemPromptLength, { error: () => t`系统提示词不能超过 ${maxSystemPromptLength} 个字符` }).optional(),
-  desktopUpdateSource: z.enum(["official", "github", "custom"]).optional(),
+  desktopUpdateSource: z.enum(["auto", "gitee", "github", "custom", "official"]).optional(),
   desktopUpdateCustomUrl: z.string().max(2048).refine(value => !value || u.desktop.isValidUpdateUrl(value),
     "自定义更新源必须是不含账号、查询参数或锚点的 HTTP(S) 地址").optional(),
   mcp: z.object({ enabled: z.boolean().optional(), token: z.string().optional(), port: z.number().int().min(1).max(65535).optional() }).optional(),
@@ -19,6 +19,7 @@ export default router.put("/", validateFields({ settings: z.record(z.string(), z
 }) }), async (req, res) => {
   u.mcpControl.assertAppRequest(req);
   const { settings } = req.body;
+  if (settings.desktopUpdateSource === "official") settings.desktopUpdateSource = "auto";
   u.removeLegacySettings(settings);
   u.cleanNodeMenuSettings(settings);
   const previousSettings = u.conf.get("settings", {});

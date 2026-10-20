@@ -18,13 +18,13 @@
         :loading="aihubkitCatalogLoading"
         :disabled="aihubkitCatalogLoading"
         @click="refreshCatalog">
-        重新同步
+        {{ aihubkitCatalog?.partial ? "继续同步" : "重新同步" }}
       </el-button>
     </header>
 
     <el-alert
       v-if="aihubkitCatalog?.partial"
-      :title="`正在补全模型渠道：已同步 ${syncedGroupCount} / ${totalGroupCount}，约 15 秒后继续。`"
+      :title="`正在补全模型渠道：已同步 ${syncedGroupCount} / ${totalGroupCount}，约 3 秒后继续。`"
       type="warning"
       :closable="false"
       showIcon />
@@ -139,7 +139,7 @@ const totalGroups = computed(() => new Set(props.types.flatMap(type => (aihubkit
 const syncedGroupCount = computed(() => aihubkitCatalog.value?.syncedGroupCount ?? totalGroups.value);
 const totalGroupCount = computed(() => aihubkitCatalog.value?.totalGroupCount ?? totalGroups.value);
 const showRetry = computed(() => Boolean(aihubkitCatalogError.value
-  || aihubkitCatalog.value && (!aihubkitCatalog.value.pricingAvailable || aihubkitCatalog.value.pricingStale)));
+  || aihubkitCatalog.value && (aihubkitCatalog.value.partial || !aihubkitCatalog.value.pricingAvailable || aihubkitCatalog.value.pricingStale)));
 
 function modelCount(type: AihubkitCatalogModelType) {
   return (aihubkitCatalog.value?.models ?? []).filter(model => model.type === type).length;

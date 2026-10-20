@@ -16,6 +16,7 @@ declare module 'vue' {
     AttachmentList: typeof import('./../components/agent/attachmentList.vue')['default']
     AttachmentPreview: typeof import('./../components/agent/attachmentPreview.vue')['default']
     CanvasShortcuts: typeof import('./../components/settings/panels/general/canvasShortcuts.vue')['default']
+    CommunityPanel: typeof import('./../components/settings/panels/pluginMarket/communityPanel.vue')['default']
     Conversation: typeof import('./../components/agent/conversation.vue')['default']
     Developer: typeof import('./../components/settings/panels/developer/index.vue')['default']
     DeviceLink: typeof import('./../components/settings/panels/deviceLink.vue')['default']

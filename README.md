@@ -24,15 +24,15 @@
 
 ## 下载安装
 
-当前稳定版为 **v0.1.1**，支持 Windows x64 和 Apple Silicon（M1/M2/M3/M4）Mac。
+当前稳定版为 **v0.1.2**，支持 Windows x64 和 Apple Silicon（M1/M2/M3/M4）Mac。
 
-1. 前往 [GitHub Releases](https://github.com/CCCq-C/mangosteen-studio/releases/latest)。
-2. Windows x64 下载 `MangosteenStudio-Windows-x64-v0.1.1-Setup.exe` 并运行安装；macOS 下载 DMG 并将“山竹漫剧”拖入“应用程序”文件夹。
+1. 从 [GitHub Releases](https://github.com/CCCq-C/mangosteen-studio/releases/latest) 下载；国内用户也可从 [Gitee Releases](https://gitee.com/Chance-Ccc/mangosteen-studio/releases) 下载同一版本。
+2. Windows x64 下载 `MangosteenStudio-Windows-x64-v0.1.2-Setup.exe` 并运行安装；macOS 下载 DMG 并将“山竹漫剧”拖入“应用程序”文件夹。
 3. 启动应用并登录，即可查看当前账号可用的模型与渠道。
 
 当前测试版的 Windows 安装器尚未进行代码签名，Windows Defender SmartScreen 可能显示“Windows 已保护你的电脑”；确认文件来自本仓库 Release 后，可选择“更多信息 → 仍要运行”。macOS 版本尚未经过 Apple 公证，如果首次阻止打开，请前往“系统设置 → 隐私与安全性”，选择“仍要打开”。
 
-v0.1.1 采用 GitHub Release 手动下载安装。客户端自动更新将在 Windows 代码签名以及 Apple Developer ID 签名与公证完成后开放。`main` 分支可能包含尚未打包发布的开发版本。
+v0.1.2 同时发布到 GitHub 与 Gitee，当前仍采用手动下载安装。由于仓库尚未配置 Windows 代码签名、Apple Developer ID 签名与公证凭据，本版本不作为自动更新基线；待后续正式版本同时具备更新清单、完整更新包、签名和公证后，客户端才会启用可验证的自动更新。`main` 分支可能包含尚未打包发布的开发版本。
 
 ## 本地开发
 

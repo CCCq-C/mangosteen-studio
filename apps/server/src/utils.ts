@@ -31,6 +31,7 @@ import * as aihubkitAccount from "@/utils/aihubkit/account";
 import * as aihubkitCatalog from "@/utils/aihubkit/catalog";
 import * as aihubkitPricing from "@/utils/aihubkit/pricing";
 import * as aihubkitUsage from "@/utils/aihubkit/usage";
+import * as communityCatalog from "@/utils/community/catalog";
 
 export default {
   assets,
@@ -68,4 +69,5 @@ export default {
   aihubkitCatalog,
   aihubkitPricing,
   aihubkitUsage,
+  communityCatalog,
 };

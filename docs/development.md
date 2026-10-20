@@ -1,6 +1,6 @@
 # 开发与扩展指南
 
-[返回 Toonflow 首页](../README.md) · [文档目录](./readme.md) · [贡献指南](../CONTRIBUTING.md) · [开发规范](../AGENTS.md)
+[返回山竹漫剧首页](../README.md) · [文档目录](./readme.md) · [贡献指南](../CONTRIBUTING.md) · [开发规范](../AGENTS.md)
 
 本文收录插件开发、源码运行、桌面打包和更新发布的详细说明。首次参与开发，可先阅读贡献指南。
 
@@ -68,8 +68,8 @@ Windows 安装器负责注册协议；macOS 需要将应用放入 `/Applications
 先安装 Git 和项目指定版本的 [Bun](https://bun.sh/)，然后执行：
 
 ```sh
-git clone https://github.com/HBAI-Ltd/Toonflow-app.git
-cd Toonflow-app
+git clone https://github.com/CCCq-C/mangosteen-studio.git
+cd mangosteen-studio
 bun install
 
 # 首次开发或修改插件后，构建节点和工具并同步到 data/
@@ -185,42 +185,46 @@ Intel Mac 在安装兼容 SDK 后，先运行桌面开发或构建命令生成�
 <details>
 <summary><strong>发布、更新与插件同步</strong></summary>
 
-**通过版本标签自动发布**
+**通过 GitHub Actions 正式发布**
 
-发布直接使用现有提交上的 `vX.Y.Z` 标签，无需 Git Flow 或 release 分支。
+正式发布只接受 GitHub 默认分支的最新提交。先合并并推送全部代码，再在 GitHub 仓库打开 **Actions → Release Mangosteen Studio → Run workflow**，填写未使用过的版本号（例如 `0.1.2`），将 `ref` 留空后运行。工作流会创建 `vX.Y.Z` 标签，不要提前移动或覆盖已有标签。
 
-1. 提交要发布的代码，在 SourceTree 中选中该提交，点击 **标签**。
-2. 填写完整标签名，例如 `v2.0.0`，确认标签指向要发布的提交。
-3. 在左侧标签列表右键这个新标签，选择 **推送标签**，目标选择正式仓库 `origin`。只推送本次标签，不勾选“推送所有标签”。
+构建失败时，在 Actions 中查看具体平台或镜像步骤；代码和版本均未变化时可直接重跑。只要修改了代码，必须使用更高的新版本号。
 
-推送标签会一并上传它所引用的提交，无需创建或推送发布分支。GitHub Actions 会自动运行 **Release desktop v2.0.0**，构建 Windows x64、macOS ARM64 和 macOS x64，全部成功后创建对应 GitHub Release。
+**一次构建、双仓发布**
 
-也可在仓库终端执行下面两条命令（将 `2.0.0` 换成本次版本）：
-
-```sh
-git tag -a v2.0.0 -m "Release v2.0.0"
-git push --no-follow-tags origin refs/tags/v2.0.0:refs/tags/v2.0.0
-```
-
-版本格式为小写 `v` 加 `X.Y.Z`；轻量标签和附注标签均支持。使用新的版本号，不覆盖已有标签。构建失败时，在 Actions 中查看日志；代码不变可重跑任务，修改代码后使用新版本号。
-
-**一次构建三个平台**
-
-在 GitHub 仓库打开 **Actions → Release desktop → Run workflow**，选择要发布的可信分支，填写版本号（例如 `2.0.1`），将 `ref` 留空后运行。推送 `vX.Y.Z` 标签同样会触发发布。包含 ARM 的构建要求 `ref` 与触发工作流的分支或标签指向同一提交，不允许借此切换到其他提交；仅构建 Windows 或 Intel 时仍可指定其他 `ref`。
-
-工作流分别在 Windows、Intel Mac 和 Apple Silicon 运行器上构建，全部成功后统一上传到对应 GitHub Release：
+工作流分别在 Windows、Intel Mac、Apple Silicon 和 Android 运行器上构建。构建产物只生成一次，再把同一批文件上传到 GitHub 与 Gitee Release：
 
 | 平台 | 安装包 | 更新文件 |
 | --- | --- | --- |
 | Windows x64 | `MangosteenStudio-Windows-x64-v<版本号>-Setup.exe` | `stable-win-x64-*` |
 | macOS Intel | DMG | `stable-macos-x64-*` |
 | macOS Apple Silicon | DMG | `stable-macos-arm64-*` |
+| Android ARM64 | APK | 不参与桌面自动更新 |
 
-各平台包含完整更新包 `.tar.zst`、更新清单 `*-update.json`，以及**GitHub 最新发布版 → 当前版本**的 `<平台前缀>-<旧 hash>.patch`。首次发布找不到该平台清单（HTTP 404）时只生成安装包和完整更新包；其他网络错误、无效清单或缺失 patch 会中止构建。版本号必须高于更新源中的上一版。
+桌面平台包含完整更新包 `.tar.zst`、更新清单 `*-update.json`，以及**GitHub 最新发布版 → 当前版本**的 `<平台前缀>-<旧 hash>.patch`。首次发布找不到该平台清单（HTTP 404）时只生成安装包和完整更新包；其他网络错误、无效清单或缺失 patch 会中止构建。版本号必须高于更新源中的上一版。工作流还会生成 `SHA256SUMS`，两个 Release 的标签、附件名称、大小和校验清单必须一致。
 
-构建固定使用 GitHub Releases 的 `releases/latest/download` 读取上一版清单及完整包，用于生成补丁。GitHub Actions 使用当前工作流仓库（`GITHUB_SERVER_URL` / `GITHUB_REPOSITORY`），本机构建默认使用 `HBAI-Ltd/Toonflow-app`。此地址写入 SDK 的构建配置，不受客户端设置影响；客户端运行时在“设置 → 关于”选择更新源，默认使用官方源 `https://api.toonflow.net/version/desktopUpdates`，也可切换到 GitHub Releases。开发者选项可保存一个自定义更新文件目录地址，保存后会出现在“关于”的更新源下拉框。工作流会上传文件到 GitHub Release，官方更新服务的文件仍需按下方命令单独同步。
+构建固定使用 GitHub Releases 的 `releases/latest/download` 读取上一版清单及完整包，用于生成补丁。GitHub Actions 使用当前工作流仓库（`GITHUB_SERVER_URL` / `GITHUB_REPOSITORY`），本机构建默认使用 `CCCq-C/mangosteen-studio`。该构建基线不受客户端设置影响。
+
+客户端运行时在“设置 → 关于”选择更新来源：
+
+- `自动`：先解析当前账号无关的 Gitee 最新正式 Release，检查失败、清单缺失或内容无效时回退 GitHub。
+- `仅 Gitee` / `仅 GitHub`：用于网络诊断，不自动改用另一平台。
+- `自定义`：先在开发者选项保存不含账号、查询参数或锚点的 HTTP(S) 文件目录，再到“关于”选择。
+
+启动检查在后台执行，不依赖 AIHubKit 登录，也不阻塞登录、项目或画布；无新版本时不弹提示。检查成功后，本次下载和安装固定使用同一个实际来源，避免跨平台混用清单与文件。v0.1.1 只有手动安装包，不能自动更新；至少从同时具备更新清单、完整更新包、签名和公证的 v0.1.2 开始启用。
 
 [Debug 工作流](../.github/workflows/debug.yml) 可单独选择平台或全部平台，产物保留 7 天，不创建 Release。默认只打完整包，勾选 `generatePatch` 可验证增量构建。CI 构建和归档检查不等于已验证真实安装、GUI 启动或 macOS Gatekeeper。
+
+**Gitee 镜像：首次配置、重跑与回滚**
+
+1. 在 Gitee 创建专用于发布的私人令牌，只授予仓库项目读写所需的 `projects` 权限；不要复用日常密码或把令牌发到聊天、Issue、日志中。
+2. 在 GitHub 仓库的 **Settings → Secrets and variables → Actions → New repository secret** 新建 `GITEE_TOKEN`，值为上一步令牌。源码和客户端不需要也不得持有该令牌。
+3. 首次正式发布后，核对 GitHub 与 Gitee 的 `main`、`vX.Y.Z` 标签、附件名称/大小和 `SHA256SUMS`；客户端从 Gitee 读取的是公开 Release，不使用令牌。
+
+GitHub Release 成功但 Gitee 步骤失败时，整个工作流会显示失败，已经发布的 GitHub 文件不会被删除。修复 Token、权限或网络后直接重跑同一工作流；Gitee 步骤会复用同名 Release，校验清单一致时跳过完整批次，清单不一致时替换这一批同名附件。
+
+错误版本不要降级客户端、移动标签或覆盖旧版本。先在默认分支回退有问题的代码，再发布更高的补丁版本；客户端会阻止更新到低于当前版本的清单。
 
 **ARM 自动签名与公证：首次配置**
 
