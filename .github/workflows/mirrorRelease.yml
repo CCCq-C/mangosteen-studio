@@ -157,7 +157,9 @@ jobs:
           import { readFileSync, readdirSync } from "node:fs";
           const files = readdirSync(process.env.artifactsDirectory).sort();
           const assets = files.filter(name => name !== "SHA256SUMS");
-          if (!assets.length || !assets.some(name => name.endsWith(".dmg"))) throw new Error("Release 缺少 DMG 安装包");
+          const version = (process.env.releaseVersion ?? "").replace(/^v/, "");
+          const windowsInstaller = `MangosteenStudio-Windows-x64-v${version}-Setup.exe`;
+          if (!assets.length || !assets.some(name => name.endsWith(".dmg") || name === windowsInstaller)) throw new Error("Release 缺少桌面安装包");
           const checksums = readFileSync(`${process.env.artifactsDirectory}/SHA256SUMS`, "utf8").trim().split("\n").map(line => {
             const match = line.match(/^[0-9a-f]{64}  ([^/\\]+)$/);
             if (!match) throw new Error("SHA256SUMS 格式不正确");

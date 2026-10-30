@@ -108,7 +108,7 @@ import {
   runDesktopUpdate,
 } from "@/stores/desktopUpdate";
 
-const currentVersion = import.meta.env.appVersion || "0.1.2";
+const currentVersion = import.meta.env.appVersion || "0.1.3";
 const changingSource = ref(false);
 const sourceLabels: Record<ResolvedDesktopUpdateSource, string> = { gitee: "Gitee", github: "GitHub", custom: "自定义来源" };
 
