@@ -47,8 +47,10 @@ jobs:
           fi
           tag="v${version}"
           notes="docs/releases/${tag}.md"
+          windowsInstaller="MangosteenStudio-Windows-x64-v${version}-Setup.exe"
           test -s "$notes"
           release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
+          jq -e --arg windowsInstaller "$windowsInstaller" '.assets | (any(.name | endswith(".dmg")) or any(.name == $windowsInstaller))' <<<"$release" >/dev/null
           assetIds="$(jq -r '.assets[] | select(.name == "SHA256SUMS") | .id' <<<"$release")"
           while IFS= read -r assetId; do
             [[ -z "$assetId" ]] && continue
@@ -57,7 +59,7 @@ jobs:
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
           release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
           jq -e '.assets | any(.name == "SHA256SUMS") | not' <<<"$release" >/dev/null
-          jq -e '.assets | any(.name | endswith(".dmg"))' <<<"$release" >/dev/null
+          jq -e --arg windowsInstaller "$windowsInstaller" '.assets | (any(.name | endswith(".dmg")) or any(.name == $windowsInstaller))' <<<"$release" >/dev/null
 
       - name: 删除 Gitee 校验附件并更新说明
         env:
@@ -91,6 +93,9 @@ jobs:
           const attachmentPath = `/releases/${release.id}/attach_files`;
           let attachments = await request(`${attachmentPath}?page=1&per_page=100&direction=asc`);
           if (!Array.isArray(attachments)) throw new Error("Gitee 附件列表格式错误");
+          const windowsInstaller = `MangosteenStudio-Windows-x64-v${version}-Setup.exe`;
+          const hasInstaller = items => items.some(item => typeof item?.name === "string" && (item.name.endsWith(".dmg") || item.name === windowsInstaller));
+          if (!hasInstaller(attachments)) throw new Error("Gitee 桌面安装包缺失");
           for (const attachment of attachments.filter(item => item?.name === "SHA256SUMS")) {
             if (!Number.isSafeInteger(attachment.id)) throw new Error("Gitee 校验附件 ID 无效");
             await request(`${attachmentPath}/${attachment.id}`, { method: "DELETE" });
@@ -105,8 +110,8 @@ jobs:
 
           attachments = await request(`${attachmentPath}?page=1&per_page=100&direction=asc`);
           if (attachments.some(item => item?.name === "SHA256SUMS")) throw new Error("Gitee 校验附件仍然存在");
-          if (!attachments.some(item => typeof item?.name === "string" && item.name.endsWith(".dmg"))) throw new Error("Gitee DMG 安装包缺失");
-          console.log(`Gitee Release ${tag} 已删除校验附件，DMG 保留`);
+          if (!hasInstaller(attachments)) throw new Error("Gitee 桌面安装包缺失");
+          console.log(`Gitee Release ${tag} 已删除校验附件，桌面安装包保留`);
           JS
 
   mirror:
