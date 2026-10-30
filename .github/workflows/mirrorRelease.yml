@@ -276,13 +276,13 @@ jobs:
               await request(`${attachmentPath}/${item.id}`, { method: "DELETE" });
             }
             const upload = spawnSync("curl", [
-              "--silent", "--show-error", "--fail-with-body", "--max-time", "1800",
+              "--silent", "--show-error", "--fail-with-body", "--max-time", "3600",
               "--connect-timeout", "30", "--http1.1", "--header", "Expect:",
               "--request", "POST", "--header", `Authorization: Bearer ${token}`,
               "--form-string", `access_token=${token}`,
               "--form", `file=@${join("artifacts", file.name)};filename=${file.name}`,
               `${api}${attachmentPath}`,
-            ], { encoding: "utf8", timeout: 1810000, maxBuffer: 4 * 1024 * 1024 });
+            ], { encoding: "utf8", timeout: 3610000, maxBuffer: 4 * 1024 * 1024 });
             if (upload.status !== 0) throw new Error(`上传 ${file.name} 失败：${(upload.stderr || upload.stdout).slice(0, 500)}`);
             const uploaded = JSON.parse(upload.stdout);
             if (uploaded?.name !== file.name || Number(uploaded.size) !== file.size) throw new Error(`${file.name} 上传后名称或大小不一致`);
