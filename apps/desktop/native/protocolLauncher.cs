@@ -19,8 +19,8 @@ internal static class protocolLauncher
             Uri url;
             if (args.Length != 1 || args[0].Length > 8192
                 || !Uri.TryCreate(args[0], UriKind.Absolute, out url)
-                || url.Scheme != "toonflow")
-                throw new InvalidOperationException("安装链接无效，须为不超过 8192 个字符的 toonflow://install?type=node&url=编码后的下载地址。");
+                || url.Scheme != "mangosteen-studio")
+                throw new InvalidOperationException("安装链接无效，须为不超过 8192 个字符的 mangosteen-studio://install?type=node&url=编码后的下载地址。");
 
             string mutexName = "Local\\ToonflowProtocol-" + WindowsIdentity.GetCurrent().User.Value;
             using (var mutex = new Mutex(false, mutexName))

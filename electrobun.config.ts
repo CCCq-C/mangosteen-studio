@@ -6,7 +6,7 @@ export default {
   app: {
     name: "Mangosteen Studio",
     identifier: "com.mangosteen.studio",
-    version: process.env.appVersion ?? "0.1.2",
+    version: process.env.appVersion ?? "0.1.3",
     urlSchemes: ["mangosteen-studio"],
   },
   build: {

@@ -100,7 +100,7 @@ jobs:
             if (names.length !== 1) throw new Error(`${label} 安装包数量应为 1，实际为 ${names.length}`);
             return names[0];
           };
-          const windows = findInstaller("Windows", name => name === `toonflow-${version}-Setup.exe`);
+          const windows = findInstaller("Windows", name => name === `MangosteenStudio-Windows-x64-v${version}-Setup.exe`);
           const macArm = findInstaller("macOS ARM64", name => name.endsWith(".dmg") && name.includes("arm64"));
           const macIntel = findInstaller("macOS x64", name => name.endsWith(".dmg") && name.includes("x64"));
           const android = findInstaller("Android ARM64", name => name === `toonflow-${version}-android-arm64.apk`);
