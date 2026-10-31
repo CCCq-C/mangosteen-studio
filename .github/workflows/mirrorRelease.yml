@@ -132,6 +132,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: 配置 Git Bash
+        if: inputs.useSelfHosted
+        shell: pwsh
+        run: |
+          $gitBashDirectory = 'C:\Program Files\Git\bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $gitBashDirectory 'bash.exe'))) {
+            throw 'Git Bash 不存在'
+          }
+          $gitBashDirectory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: 下载并校验 GitHub Release
         id: prepare
         env:
