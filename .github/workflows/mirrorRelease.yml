@@ -16,6 +16,11 @@ on:
           - remove-checksum
         default: mirror
         required: true
+      useSelfHosted:
+        description: 使用临时 Windows self-hosted runner（仅用于 Gitee 大附件直传）
+        type: boolean
+        default: false
+        required: true
 
 permissions:
   contents: read
@@ -117,7 +122,10 @@ jobs:
   mirror:
     name: 核验并同步 Gitee Release
     if: inputs.operation == 'mirror'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.useSelfHosted && fromJSON('["self-hosted","Windows","X64","mangosteen-v013"]') || 'ubuntu-24.04' }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
@@ -208,7 +216,7 @@ jobs:
           fi
 
       - name: 创建并核验 Gitee Release
-        timeout-minutes: 45
+        timeout-minutes: 125
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           releaseVersion: ${{ steps.prepare.outputs.version }}
