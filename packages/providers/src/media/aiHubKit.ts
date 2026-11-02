@@ -1,7 +1,10 @@
 const apiUrl = "https://apimodel.aihubkit.com";
-const version = "0.3.0";
+const videoApiUrl = "https://apishanzhu.aihubkit.com";
+const version = "0.4.0";
 const rules = [] as const;
 const maxReferenceImageSize = 100 * 1024 * 1024;
+const maxReferenceVideoSize = 100 * 1024 * 1024;
+type StreamingMediaInput = MediaInput | { type: "file"; path: string; size: number; mimeType: string; name?: string };
 const imageExtensions: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -9,6 +12,12 @@ const imageExtensions: Record<string, string> = {
   "image/gif": "gif",
   "image/bmp": "bmp",
   "image/avif": "avif",
+};
+const videoExtensions: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "video/ogg": "ogv",
 };
 
 function object(value: unknown): Record<string, unknown> {
@@ -28,13 +37,18 @@ function apiKeys(config: Record<string, unknown>) {
 
 function accountAccessToken(config: Record<string, unknown>) {
   const value = text(config.accountAccessToken).replace(/^Bearer\s+/i, "").trim();
-  if (!value) throw new Error("登录授权已失效，请重新登录后再上传参考图");
+  if (!value) throw new Error("登录授权已失效，请重新登录后再上传参考素材");
   return value;
 }
 
 function normalizedImageMimeType(value: unknown) {
   const mimeType = text(value).split(";", 1)[0]!.toLowerCase();
   return mimeType.startsWith("image/") ? mimeType : "";
+}
+
+function normalizedVideoMimeType(value: unknown) {
+  const mimeType = text(value).split(";", 1)[0]!.toLowerCase();
+  return mimeType.startsWith("video/") ? mimeType : "";
 }
 
 function imageMimeTypeFromUrl(value: string) {
@@ -44,6 +58,18 @@ function imageMimeTypeFromUrl(value: string) {
   const extension = /\.([a-zA-Z0-9]+)$/.exec(pathname)?.[1]?.toLowerCase();
   if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
   if (extension && ["png", "webp", "gif", "bmp", "avif"].includes(extension)) return `image/${extension}`;
+  return "";
+}
+
+function videoMimeTypeFromUrl(value: string) {
+  let pathname = value;
+  try { pathname = new URL(value).pathname; }
+  catch { return ""; }
+  const extension = /\.([a-zA-Z0-9]+)$/.exec(pathname)?.[1]?.toLowerCase();
+  if (extension === "mp4") return "video/mp4";
+  if (extension === "webm") return "video/webm";
+  if (extension === "mov") return "video/quicktime";
+  if (extension === "ogv" || extension === "ogg") return "video/ogg";
   return "";
 }
 
@@ -65,6 +91,26 @@ function decodeBase64Image(input: Extract<MediaInput, { type: "base64" }>) {
   const mimeType = normalizedImageMimeType(input.mimeType) || normalizedImageMimeType(embedded?.[1]);
   if (!mimeType) throw new Error("参考图必须提供有效的图片类型");
   return { bytes: checkedImageBytes(new Uint8Array(Buffer.from(encoded, "base64"))), mimeType };
+}
+
+function checkedVideoBytes(data: Uint8Array) {
+  if (!data.byteLength) throw new Error("参考视频不能为空");
+  if (data.byteLength > maxReferenceVideoSize) throw new Error("单个参考视频不能超过 100 MB");
+  return data;
+}
+
+function decodeBase64Video(input: Extract<MediaInput, { type: "base64" }>) {
+  const source = input.data.trim();
+  const embedded = /^data:([^;,]+)(?:;[^,]*)?;base64,([\s\S]+)$/i.exec(source);
+  if (source.startsWith("data:") && !embedded) throw new Error("参考视频的 Data URL 无效");
+  const encoded = (embedded?.[2] ?? source).replace(/\s/g, "");
+  if (!encoded || encoded.length > Math.ceil(maxReferenceVideoSize / 3) * 4 + 4
+    || !/^[a-zA-Z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
+    throw new Error("参考视频的 Base64 数据无效或超过 100 MB");
+  }
+  const mimeType = normalizedVideoMimeType(input.mimeType) || normalizedVideoMimeType(embedded?.[1]);
+  if (!mimeType || !videoExtensions[mimeType]) throw new Error("参考视频必须提供支持的视频类型");
+  return { bytes: checkedVideoBytes(new Uint8Array(Buffer.from(encoded, "base64"))), mimeType };
 }
 
 async function imageContent(context: ProviderContext, input: MediaInput, index: number) {
@@ -96,9 +142,62 @@ async function imageContent(context: ProviderContext, input: MediaInput, index: 
   return { bytes, mimeType, filename: `reference-${index + 1}.${extension}` };
 }
 
+async function videoContent(context: ProviderContext, input: MediaInput, index: number) {
+  let bytes: Uint8Array;
+  let mimeType: string;
+  if (input.type === "base64") ({ bytes, mimeType } = decodeBase64Video(input));
+  else if (input.type === "binary") {
+    bytes = checkedVideoBytes(new Uint8Array(input.data));
+    mimeType = normalizedVideoMimeType(input.mimeType);
+    if (!mimeType || !videoExtensions[mimeType]) throw new Error("参考视频必须提供支持的视频类型");
+  } else {
+    let url: URL;
+    try { url = new URL(input.url); }
+    catch { throw new Error("参考视频地址无效，只支持 HTTP 或 HTTPS 地址"); }
+    if (!/^https?:$/.test(url.protocol)) throw new Error("参考视频地址无效，只支持 HTTP 或 HTTPS 地址");
+    const response = await context.tool.fetch(url, { signal: context.signal });
+    if (!response.ok) throw new Error(`读取参考视频失败（HTTP ${response.status}）`);
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxReferenceVideoSize) {
+      await response.body?.cancel();
+      throw new Error("单个参考视频不能超过 100 MB");
+    }
+    bytes = checkedVideoBytes(new Uint8Array(await response.arrayBuffer()));
+    const responseMimeType = normalizedVideoMimeType(response.headers.get("content-type"));
+    mimeType = normalizedVideoMimeType(input.mimeType) || responseMimeType || videoMimeTypeFromUrl(input.url);
+    if (!mimeType || !videoExtensions[mimeType]) throw new Error("下载的参考素材不是支持的视频");
+  }
+  return { bytes, mimeType, filename: `reference-${index + 1}.${videoExtensions[mimeType]}` };
+}
+
 async function imageUpload(context: ProviderContext, input: MediaInput, index: number) {
   const { bytes, mimeType, filename } = await imageContent(context, input, index);
   return { blob: new Blob([Uint8Array.from(bytes).buffer], { type: mimeType }), filename };
+}
+
+function localFileContent(input: Extract<StreamingMediaInput, { type: "file" }>, mediaType: "image" | "video", index: number) {
+  const mimeType = mediaType === "image" ? normalizedImageMimeType(input.mimeType) : normalizedVideoMimeType(input.mimeType);
+  const extensions = mediaType === "image" ? imageExtensions : videoExtensions;
+  const maximum = mediaType === "image" ? maxReferenceImageSize : maxReferenceVideoSize;
+  if (!mimeType || !extensions[mimeType]) throw new Error(`参考${mediaType === "image" ? "图" : "视频"}必须提供支持的媒体类型`);
+  if (!Number.isSafeInteger(input.size) || input.size <= 0 || input.size > maximum) {
+    throw new Error(`参考${mediaType === "image" ? "图" : "视频"}不能为空且不能超过 100 MB`);
+  }
+  const body = Bun.file(input.path, { type: mimeType });
+  if (body.size !== input.size) throw new Error(`参考${mediaType === "image" ? "图" : "视频"}已被修改，请重新生成`);
+  return { body, size: input.size, mimeType, filename: `reference-${index + 1}.${extensions[mimeType]}` };
+}
+
+async function temporaryImageContent(context: ProviderContext, input: StreamingMediaInput, index: number) {
+  if (input.type === "file") return localFileContent(input, "image", index);
+  const { bytes, mimeType, filename } = await imageContent(context, input, index);
+  return { body: new Blob([Uint8Array.from(bytes).buffer], { type: mimeType }), size: bytes.byteLength, mimeType, filename };
+}
+
+async function temporaryVideoContent(context: ProviderContext, input: StreamingMediaInput, index: number) {
+  if (input.type === "file") return localFileContent(input, "video", index);
+  const { bytes, mimeType, filename } = await videoContent(context, input, index);
+  return { body: new Blob([Uint8Array.from(bytes).buffer], { type: mimeType }), size: bytes.byteLength, mimeType, filename };
 }
 
 type ImageUploads = { images: Awaited<ReturnType<typeof imageUpload>>[]; mask?: Awaited<ReturnType<typeof imageUpload>> };
@@ -128,7 +227,7 @@ function temporaryUploadHeaders(value: unknown, fallbackMimeType: string) {
   return headers;
 }
 
-async function uploadTemporaryImage(context: ProviderContext, input: MediaInput, index: number) {
+async function uploadTemporaryImage(context: ProviderContext, input: StreamingMediaInput, index: number) {
   if (input.type === "url") {
     try {
       const url = new URL(input.url);
@@ -137,12 +236,12 @@ async function uploadTemporaryImage(context: ProviderContext, input: MediaInput,
       throw new Error("参考图地址无效，只支持 HTTP 或 HTTPS 地址");
     }
   }
-  const { bytes, mimeType, filename } = await imageContent(context, input, index);
+  const { body, size, mimeType, filename } = await temporaryImageContent(context, input, index);
   const created = await fetchJson(context, accountAccessToken(context.config), "/v1/temporary-files", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename, content_type: mimeType, size: bytes.byteLength }),
-  });
+    body: JSON.stringify({ filename, content_type: mimeType, size }),
+  }, videoApiUrl);
   if (!created.response.ok || object(created.payload).success === false) {
     throw requestError(context, created.payload, created.response.status);
   }
@@ -153,7 +252,7 @@ async function uploadTemporaryImage(context: ProviderContext, input: MediaInput,
   const uploaded = await context.tool.fetch(uploadUrl, {
     method: "PUT",
     headers,
-    body: Uint8Array.from(bytes).buffer,
+    body,
     signal: context.signal,
   });
   if (!uploaded.ok) throw new Error(`上传参考图失败（HTTP ${uploaded.status}）`);
@@ -161,23 +260,69 @@ async function uploadTemporaryImage(context: ProviderContext, input: MediaInput,
   return publicUrl;
 }
 
-function imageReferenceLimit(mode: VideoRequest["mode"]) {
+async function uploadTemporaryVideo(context: ProviderContext, input: StreamingMediaInput, index: number) {
+  if (input.type === "url") {
+    try {
+      const url = new URL(input.url);
+      if (url.protocol === "https:") return url.href;
+    } catch {
+      throw new Error("参考视频地址无效，只支持 HTTP 或 HTTPS 地址");
+    }
+  }
+  const { body, size, mimeType, filename } = await temporaryVideoContent(context, input, index);
+  const created = await fetchJson(context, accountAccessToken(context.config), "/v1/temporary-files", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, content_type: mimeType, size }),
+  }, videoApiUrl);
+  if (!created.response.ok || object(created.payload).success === false) {
+    throw requestError(context, created.payload, created.response.status);
+  }
+  const data = object(object(created.payload).data);
+  const uploadUrl = httpsUrl(data.upload_url, "上传地址");
+  const publicUrl = httpsUrl(data.url, "访问地址");
+  const headers = temporaryUploadHeaders(data.headers, normalizedVideoMimeType(data.content_type) || mimeType);
+  const uploaded = await context.tool.fetch(uploadUrl, {
+    method: "PUT",
+    headers,
+    body,
+    signal: context.signal,
+  });
+  if (!uploaded.ok) throw new Error(`上传参考视频失败（HTTP ${uploaded.status}）`);
+  await uploaded.body?.cancel();
+  return publicUrl;
+}
+
+function referenceLimit(mode: VideoRequest["mode"], type: "image" | "video") {
   if (!Array.isArray(mode)) return 0;
-  const value = mode.find(item => item.startsWith("imageReference:"))?.split(":")[1];
+  const value = mode.find(item => item.startsWith(`${type}Reference:`))?.split(":")[1];
   const limit = Number(value);
   return Number.isInteger(limit) && limit > 0 && limit <= 100 ? limit : 0;
 }
 
 async function prepareVideoReferenceImages(context: ProviderContext, request: VideoRequest) {
-  const images = request.images ?? [];
+  const images = (request.images ?? []) as StreamingMediaInput[];
   if (!images.length) return undefined;
-  const limit = imageReferenceLimit(request.mode);
+  const limit = referenceLimit(request.mode, "image");
   if (!limit) throw new Error("当前模型没有声明参考图能力，请刷新模型或更换模型");
   if (images.length > limit) throw new Error(`当前模型最多支持 ${limit} 张参考图`);
   const urls: string[] = [];
   // ACT: 临时上传顺序执行，避免一次把多张 100 MB 图片同时保留在请求队列中。
   for (let index = 0; index < images.length; index++) {
     urls.push(await uploadTemporaryImage(context, images[index]!, index));
+  }
+  return urls;
+}
+
+async function prepareVideoReferenceVideos(context: ProviderContext, request: VideoRequest) {
+  const videos = (request.videos ?? []) as StreamingMediaInput[];
+  if (!videos.length) return undefined;
+  const limit = referenceLimit(request.mode, "video");
+  if (!limit) throw new Error("当前模型没有声明参考视频能力，请刷新模型或更换模型");
+  if (videos.length > limit) throw new Error(`当前模型最多支持 ${limit} 段参考视频`);
+  const urls: string[] = [];
+  for (let index = 0; index < videos.length; index++) {
+    urls.push(await uploadTemporaryVideo(context, videos[index]!, index));
   }
   return urls;
 }
@@ -277,11 +422,11 @@ function wait(signal: AbortSignal, milliseconds = 3000) {
   });
 }
 
-async function fetchJson(context: ProviderContext, apiKey: string, path: string, init: RequestInit = {}) {
+async function fetchJson(context: ProviderContext, apiKey: string, path: string, init: RequestInit = {}, baseUrl = apiUrl) {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   headers.set("Authorization", `Bearer ${apiKey}`);
-  const response = await context.tool.fetch(`${apiUrl}${path}`, { ...init, headers, signal: context.signal });
+  const response = await context.tool.fetch(`${baseUrl}${path}`, { ...init, headers, signal: context.signal });
   let payload: unknown;
   try { payload = await response.json(); }
   catch {
@@ -374,7 +519,7 @@ async function createVideo(context: ProviderContext, apiKey: string, body: Recor
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, videoApiUrl);
   if (!created.response.ok) throw requestError(context, created.payload, created.response.status);
   if (["failed", "failure", "error", "cancelled", "canceled", "rejected"].includes(taskState(created.payload))) {
     throw requestError(context, created.payload, created.response.status);
@@ -386,7 +531,7 @@ async function createVideo(context: ProviderContext, apiKey: string, body: Recor
 
   while (true) {
     await wait(context.signal!, 5000);
-    const result = await fetchJson(context, apiKey, `/v1/videos/${encodeURIComponent(id)}`);
+    const result = await fetchJson(context, apiKey, `/v1/videos/${encodeURIComponent(id)}`, {}, videoApiUrl);
     if (!result.response.ok) throw requestError(context, result.payload, result.response.status);
     const asset = videoAsset(result.payload);
     if (asset) return [asset];
@@ -432,8 +577,7 @@ export default {
   },
   async generateVideo(this: ProviderContext, request: VideoRequest): Promise<MediaAsset[]> {
     if (!request.prompt.trim()) throw new Error("请输入视频生成提示词");
-    if (request.videos?.length) throw new Error("当前版本暂不支持参考视频，请先只使用图片参考");
-    if (request.audios?.length) throw new Error("当前版本暂不支持参考音频，请先只使用图片参考");
+    if (request.audios?.length) throw new Error("当前版本暂不支持参考音频，请先只使用图片或视频参考");
     if (request.firstFrame || request.lastFrame) throw new Error("当前版本暂不支持首尾帧，请改用普通图片参考");
     if (!Number.isInteger(request.duration) || request.duration! <= 0) throw new Error("请选择视频时长");
     const resolution = request.resolution?.trim();
@@ -443,6 +587,7 @@ export default {
     const signal = AbortSignal.any([AbortSignal.timeout(30 * 60_000), ...(this.signal ? [this.signal] : [])]);
     const context = { ...this, signal };
     const referenceImages = await prepareVideoReferenceImages(context, request);
+    const referenceVideos = await prepareVideoReferenceVideos(context, request);
     const body = {
       model: request.model,
       prompt: request.prompt.trim(),
@@ -450,6 +595,7 @@ export default {
       resolution,
       ...(request.ratio?.trim() ? { ratio: request.ratio.trim() } : {}),
       ...(referenceImages ? { referenceImages } : {}),
+      ...(referenceVideos ? { referenceVideos } : {}),
     };
     let lastError: unknown;
     for (const key of keys) {

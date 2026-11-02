@@ -19,6 +19,7 @@ import { beginGeneration, getProviderPrice } from "@/utils/media/billing";
 import { detectMimeType, readPriceReference } from "@/utils/media/priceReference";
 
 const maxMediaSize = 100 * 1024 * 1024;
+type StreamingMediaInput = { type: "file"; path: string; size: number; mimeType: string; name?: string };
 const mediaExtensions: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
   "image/avif": "avif", "image/bmp": "bmp", "image/tiff": "tiff",
@@ -42,7 +43,11 @@ function seconds(from: number, to: number) {
 function aihubkitVideoCapabilities(modelId: string, description: string | undefined, rules: AihubkitVideoCapabilityRules): Pick<MediaModel, "mode" | "durationResolutionMap" | "audio"> {
   const id = modelId.toLowerCase();
   const limits = resolveAihubkitVideoReferenceLimits(modelId, description, rules);
-  const mode = ["text", ...(limits?.images ? [[`imageReference:${limits.images}`]] : [])];
+  const references = [
+    ...(limits?.images ? [`imageReference:${limits.images}`] : []),
+    ...(limits?.videos ? [`videoReference:${limits.videos}`] : []),
+  ];
+  const mode = ["text", ...(references.length ? [references] : [])];
   const describedDurations = resolveAihubkitVideoDurations(description);
   const mappings = (fallback: number[], resolution: string[]) => {
     const duration = describedDurations ?? fallback;
@@ -121,6 +126,17 @@ export async function readReference(cwd: string, reference: MediaReference, medi
   return { type: "base64", data: bytes.toString("base64"), mimeType, name: reference.path };
 }
 
+export async function readStreamingReference(cwd: string, reference: MediaReference, mediaType: string, signal?: AbortSignal): Promise<StreamingMediaInput> {
+  signal?.throwIfAborted();
+  const { path } = await resolveWorkspacePath(cwd, reference.path);
+  const info = await stat(path);
+  if (!info.isFile() || !info.size || info.size > maxMediaSize) invalid("参考媒体须为不超过 100 MB 的非空文件");
+  const header = new Uint8Array(await Bun.file(path).slice(0, Math.min(info.size, 8192)).arrayBuffer());
+  const mimeType = detectMimeType(header, reference.mimeType);
+  if (!mimeType.startsWith(`${mediaType}/`)) invalid(t`参考媒体类型须为 ${mediaType}`);
+  return { type: "file", path, size: info.size, mimeType, name: reference.path };
+}
+
 async function downloadAsset(url: string, signal?: AbortSignal) {
   if (!/^https?:\/\//i.test(url)) invalid("生成结果必须使用 HTTP 或 HTTPS 地址");
   const response = await fetch(url, { signal });
@@ -195,6 +211,27 @@ async function prepareRequest<T>(directory: string | undefined, mediaType: "imag
   };
 }
 
+async function normalizeAihubkitRequest(request: MediaGenerationRequest, mediaType: "image" | "video" | "audio") {
+  if (request.providerId !== aiHubKit.id || mediaType !== "video") return request;
+  const [catalog, rules] = await Promise.all([getAihubkitCatalog(), getAihubkitVideoCapabilityRules()]);
+  const model = catalog.models.find(item => item.id === request.modelId && item.type === "video"
+    && item.groups.some(group => group.id === request.groupId));
+  if (!model) invalid("这个节点的模型已失效，请重新选择模型");
+  const limits = resolveAihubkitVideoReferenceLimits(model.id, model.description, rules);
+  const check = (count: number, limit: number | undefined, label: "参考图" | "参考视频") => {
+    if (!count) return;
+    if (!limit) invalid(`当前模型没有声明${label}能力，请刷新模型或更换模型`);
+    if (count > limit) invalid(`当前模型最多支持 ${limit} ${label === "参考图" ? "张参考图" : "段参考视频"}`);
+  };
+  check(request.images?.length ?? 0, limits?.images, "参考图");
+  check(request.videos?.length ?? 0, limits?.videos, "参考视频");
+  const mode = [
+    ...(limits?.images ? [`imageReference:${limits.images}` as const] : []),
+    ...(limits?.videos ? [`videoReference:${limits.videos}` as const] : []),
+  ];
+  return { ...request, mode: mode.length && ((request.images?.length ?? 0) + (request.videos?.length ?? 0)) ? mode : "text" as const };
+}
+
 async function configuredProvider(request: MediaGenerationRequest, mediaType: "image" | "video" | "audio", signal?: AbortSignal, directory?: string) {
   if (request.providerId === aiHubKit.id) {
     if (mediaType === "audio") invalid("当前 AIHubKit 目录没有音频模型");
@@ -227,17 +264,18 @@ async function preparePriceRequest(directory: string | undefined, mediaType: "im
 
 export async function getMediaPrice(directory: string | undefined, mediaType: "image" | "video" | "audio", request: MediaGenerationRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  if (request.providerId === aiHubKit.id) {
+  const checkedRequest = await normalizeAihubkitRequest(request, mediaType);
+  if (checkedRequest.providerId === aiHubKit.id) {
     if (mediaType === "audio") invalid("当前 AIHubKit 目录没有音频模型");
-    const groupId = request.groupId?.trim();
-    if (!groupId || !await getAihubkitModelCandidate(request.modelId, mediaType, groupId)) invalid("这个节点的模型已失效，请重新选择模型");
-    const prepared = await preparePriceRequest(directory, mediaType, request, signal);
+    const groupId = checkedRequest.groupId?.trim();
+    if (!groupId || !await getAihubkitModelCandidate(checkedRequest.modelId, mediaType, groupId)) invalid("这个节点的模型已失效，请重新选择模型");
+    const prepared = await preparePriceRequest(directory, mediaType, checkedRequest, signal);
     signal?.throwIfAborted();
-    return estimateAihubkitMediaPrice(request.modelId, groupId, prepared);
+    return estimateAihubkitMediaPrice(checkedRequest.modelId, groupId, prepared);
   }
-  const provider = await configuredProvider(request, mediaType, signal, directory);
+  const provider = await configuredProvider(checkedRequest, mediaType, signal, directory);
   if (!provider.getPrice) return null;
-  const prepared = await preparePriceRequest(directory, mediaType, request, signal);
+  const prepared = await preparePriceRequest(directory, mediaType, checkedRequest, signal);
   signal?.throwIfAborted();
   return getProviderPrice(provider, prepared);
 }
@@ -251,14 +289,20 @@ export async function generateMedia(
   signal?.throwIfAborted();
   if (!request.prompt.trim()) invalid("请输入生成提示词");
   const directory = await realpath(cwd);
-  const outputDirectory = request.outputDirectory ?? "assets/generated";
+  const checkedRequest = await normalizeAihubkitRequest(request, mediaType);
+  const outputDirectory = checkedRequest.outputDirectory ?? "assets/generated";
   await resolveWorkspacePath(directory, outputDirectory, true);
-  const provider = await configuredProvider(request, mediaType, signal, directory);
+  const provider = await configuredProvider(checkedRequest, mediaType, signal, directory);
   const generate = mediaType === "image" ? provider.generateImage : mediaType === "video" ? provider.generateVideo : provider.generateAudio;
   if (typeof generate !== "function") invalid(t`此供应商不支持${translateMessage({ image: "图片", video: "视频", audio: "音频" }[mediaType])}生成`);
   const rules = Array.isArray(provider.rules) ? provider.rules : [];
   if (rules.some(rule => rule.field === "apiKey") && (typeof provider.config.apiKey !== "string" || !provider.config.apiKey.trim())) invalid("请先在媒体模型设置中配置供应商 API Key");
-  const prepared = await prepareRequest(directory, mediaType, request, readReference, signal);
+  const streamReferences = checkedRequest.providerId === aiHubKit.id && mediaType === "video";
+  type PreparedReference = StreamingMediaInput | Awaited<ReturnType<typeof readReference>>;
+  const referenceReader = async (root: string, reference: MediaReference, type: string, requestSignal?: AbortSignal): Promise<PreparedReference> => streamReferences
+    ? readStreamingReference(root, reference, type, requestSignal)
+    : readReference(root, reference, type, requestSignal);
+  const prepared = await prepareRequest<PreparedReference>(directory, mediaType, checkedRequest, referenceReader, signal);
   signal?.throwIfAborted();
   const finish = beginGeneration(provider);
   const written: string[] = [];
@@ -293,6 +337,6 @@ export async function generateMedia(
     throw err;
   } finally {
     finish();
-    if (request.providerId === aiHubKit.id) scheduleAihubkitPriceHistoryRefresh();
+    if (checkedRequest.providerId === aiHubKit.id) scheduleAihubkitPriceHistoryRefresh();
   }
 }

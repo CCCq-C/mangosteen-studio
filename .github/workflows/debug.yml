@@ -7,7 +7,7 @@ on:
         description: 构建平台
         type: choice
         default: windowsX64
-        options: [windowsX64, macArm64, macX64, androidArm64, all]
+        options: [windowsX64, macArm64, macX64, androidArm64, desktop, all]
       ref:
         description: 代码分支、标签或提交；签名构建要求与所选工作流版本为同一提交
         type: string
@@ -16,6 +16,10 @@ on:
         type: string
       generatePatch:
         description: 基于上一版本生成增量更新，尚无基线时生成首版完整包
+        type: boolean
+        default: false
+      macCodesign:
+        description: 为 Apple Silicon 安装包启用 Developer ID 签名与公证
         type: boolean
         default: false
       androidRelease:
@@ -34,6 +38,9 @@ on:
         type: string
         default: ""
       generatePatch:
+        type: boolean
+        default: false
+      macCodesign:
         type: boolean
         default: false
       androidRelease:
@@ -104,7 +111,7 @@ jobs:
             { target: "androidArm64", os: "windows-2025", platform: "win32", arch: "x64", releaseFolder: "build/mobile/releases" },
           ];
           const selected = process.env.buildTarget || "all";
-          const include = targets.filter(item => selected === "all" || item.target === selected);
+          const include = targets.filter(item => selected === "all" || (selected === "desktop" && item.target !== "androidArm64") || item.target === selected);
           if (!include.length) throw new Error(`不支持的构建平台：${selected}`);
           const refVersion = /^v\d+\.\d+\.\d+$/.test(process.env.buildRef ?? "") ? process.env.buildRef : "";
           const version = (process.env.buildVersion?.trim() || refVersion || config.app.version).replace(/^v/, "");
@@ -124,15 +131,15 @@ jobs:
     env:
       appVersion: ${{ needs.prepare.outputs.version }}
       releaseMode: ${{ inputs.generatePatch && '--auto' || '--initial' }}
-      macCodesign: ${{ matrix.target == 'macArm64' && '1' || '0' }}
+      macCodesign: ${{ inputs.macCodesign && matrix.target == 'macArm64' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v7
         with:
           # ACT: 签名只使用触发工作流的代码，避免额外 ref 引入未审查的 PR 代码。
-          ref: ${{ matrix.target == 'macArm64' && github.sha || needs.prepare.outputs.commit }}
+          ref: ${{ inputs.macCodesign && matrix.target == 'macArm64' && github.sha || needs.prepare.outputs.commit }}
           persist-credentials: false
       - name: 校验签名来源
-        if: matrix.target == 'macArm64'
+        if: inputs.macCodesign && matrix.target == 'macArm64'
         env:
           buildCommit: ${{ needs.prepare.outputs.commit }}
         run: |
@@ -200,7 +207,7 @@ jobs:
           androidRelease: ${{ inputs.androidRelease && '1' || '0' }}
         run: bun run --cwd apps/mobile build
       - name: 准备 ARM 签名与公证凭据
-        if: matrix.target == 'macArm64'
+        if: inputs.macCodesign && matrix.target == 'macArm64'
         id: signing
         env:
           certificateBase64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
@@ -252,7 +259,7 @@ jobs:
           printf 'identity=%s\n' "$identity" >> "$GITHUB_OUTPUT"
           printf 'notarizationKeyPath=%s\n' "$notarizationKeyPath" >> "$GITHUB_OUTPUT"
       - name: 为 Apple 公证票据网络错误启用有限重试
-        if: matrix.target == 'macArm64'
+        if: inputs.macCodesign && matrix.target == 'macArm64'
         run: |
           bun -e '
           import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "@toonflow/file";
@@ -265,16 +272,16 @@ jobs:
           chmodSync(target, 0o755);
           writeFileSync(process.env.GITHUB_PATH, `${directory}\n`, { flag: "a" });
           '
-      - name: 构建 macOS 安装包及更新文件（ARM 自动公证）
+      - name: 构建 macOS 安装包及更新文件
         if: runner.os == 'macOS'
         env:
           ELECTROBUN_DEVELOPER_ID: ${{ steps.signing.outputs.identity }}
-          ELECTROBUN_APPLEAPIKEY: ${{ matrix.target == 'macArm64' && secrets.MACOS_NOTARIZATION_KEY_ID || '' }}
-          ELECTROBUN_APPLEAPIISSUER: ${{ matrix.target == 'macArm64' && secrets.MACOS_NOTARIZATION_ISSUER_ID || '' }}
+          ELECTROBUN_APPLEAPIKEY: ${{ inputs.macCodesign && matrix.target == 'macArm64' && secrets.MACOS_NOTARIZATION_KEY_ID || '' }}
+          ELECTROBUN_APPLEAPIISSUER: ${{ inputs.macCodesign && matrix.target == 'macArm64' && secrets.MACOS_NOTARIZATION_ISSUER_ID || '' }}
           ELECTROBUN_APPLEAPIKEYPATH: ${{ steps.signing.outputs.notarizationKeyPath }}
         run: bun run release:desktop "$appVersion" "$releaseMode"
       - name: 清理 ARM 签名与公证凭据
-        if: always() && matrix.target == 'macArm64'
+        if: always() && inputs.macCodesign && matrix.target == 'macArm64'
         run: |
           rm -f "$RUNNER_TEMP/toonflowSigning.p12" "$RUNNER_TEMP/toonflowNotarization.p8"
           keychainPath="$RUNNER_TEMP/toonflowSigning.keychain-db"
@@ -307,7 +314,10 @@ jobs:
           await write(join(process.env.inspectionDirectory, "app.tar"), Bun.zstdDecompressSync(await file(join(directory, archives[0])).arrayBuffer()));
           '
           tar -xf "$inspectionDirectory/app.tar" -C "$inspectionDirectory"
-          app="$inspectionDirectory/toonflow.app"
+          shopt -s nullglob
+          extractedApps=("$inspectionDirectory"/*.app)
+          test "${#extractedApps[@]}" -eq 1
+          app="${extractedApps[0]}"
           test -s "$app/Contents/Resources/AppIcon.icns"
           test -s "$app/Contents/Resources/app/bun/index.js"
           test -x "$app/Contents/MacOS/bun"
@@ -319,8 +329,11 @@ jobs:
             verifyMacArtifact "$dmg"
             hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mountDirectory"
             trap 'hdiutil detach "$mountDirectory"' EXIT
-            test -x "$mountDirectory/toonflow.app/Contents/MacOS/launcher"
-            verifyMacArtifact "$mountDirectory/toonflow.app"
+            mountedApps=("$mountDirectory"/*.app)
+            test "${#mountedApps[@]}" -eq 1
+            mountedApp="${mountedApps[0]}"
+            test -x "$mountedApp/Contents/MacOS/launcher"
+            verifyMacArtifact "$mountedApp"
             hdiutil detach "$mountDirectory"
             trap - EXIT
           done
