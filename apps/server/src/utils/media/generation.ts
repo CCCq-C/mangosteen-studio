@@ -8,7 +8,12 @@ import { getMediaProvider, listMediaProviders, loadMediaProviderDefinition, load
 import { getAihubkitCatalog, getAihubkitModelCandidate } from "@/utils/aihubkit/catalog";
 import { getAihubkitAccess } from "@/utils/aihubkit/account";
 import { estimateAihubkitMediaPrice, scheduleAihubkitPriceHistoryRefresh } from "@/utils/aihubkit/pricing";
-import { getAihubkitVideoCapabilityRules, resolveAihubkitVideoReferenceLimits, type AihubkitVideoCapabilityRules } from "@/utils/aihubkit/videoCapabilities";
+import {
+  getAihubkitVideoCapabilityRules,
+  resolveAihubkitVideoDurations,
+  resolveAihubkitVideoReferenceLimits,
+  type AihubkitVideoCapabilityRules,
+} from "@/utils/aihubkit/videoCapabilities";
 import { lockWorkspaceFiles, resolveWorkspacePath, writeWorkspaceFile } from "@/utils/workspace/files";
 import { beginGeneration, getProviderPrice } from "@/utils/media/billing";
 import { detectMimeType, readPriceReference } from "@/utils/media/priceReference";
@@ -38,23 +43,28 @@ function aihubkitVideoCapabilities(modelId: string, description: string | undefi
   const id = modelId.toLowerCase();
   const limits = resolveAihubkitVideoReferenceLimits(modelId, description, rules);
   const mode = ["text", ...(limits?.images ? [[`imageReference:${limits.images}`]] : [])];
+  const describedDurations = resolveAihubkitVideoDurations(modelId, description);
+  const mappings = (fallback: number[], resolution: string[]) => {
+    const duration = describedDurations ?? fallback;
+    return duration.length ? [{ duration, resolution }] : [];
+  };
   if (/(?:seedance[-_. ]?2[._-]?5|^sd-2\.5)/i.test(id)) {
-    return { mode, durationResolutionMap: [{ duration: seconds(4, 30), resolution: ["480p", "720p", "1080p"] }], audio: "optional" };
+    return { mode, durationResolutionMap: mappings(seconds(4, 30), ["480p", "720p", "1080p"]), audio: "optional" };
   }
   if (/(?:seedance[-_. ]?2[._-]?0|^sd-(?:2\.0|fast|mini))/i.test(id)) {
     const limited = /(?:fast|mini)/i.test(id);
-    return { mode, durationResolutionMap: [{ duration: seconds(4, 15), resolution: limited ? ["480p", "720p"] : ["480p", "720p", "1080p", "4k"] }], audio: "optional" };
+    return { mode, durationResolutionMap: mappings(seconds(4, 15), limited ? ["480p", "720p"] : ["480p", "720p", "1080p", "4k"]), audio: "optional" };
   }
   if (/kling/i.test(id)) {
-    return { mode, durationResolutionMap: [{ duration: seconds(3, 15), resolution: ["720p", "1080p", "4k"] }] };
+    return { mode, durationResolutionMap: mappings(seconds(3, 15), ["720p", "1080p", "4k"]) };
   }
   if (/minimax[-_. ]?h3/i.test(id)) {
-    return { mode, durationResolutionMap: [{ duration: seconds(4, 15), resolution: ["768p", "2k"] }] };
+    return { mode, durationResolutionMap: mappings(seconds(4, 15), ["768p", "2k"]) };
   }
   if (/wan[-_. ]?3/i.test(id)) {
-    return { mode, durationResolutionMap: [{ duration: seconds(2, 30), resolution: ["480p", "720p", "1080p"] }] };
+    return { mode, durationResolutionMap: mappings(seconds(2, 30), ["480p", "720p", "1080p"]) };
   }
-  return { mode, durationResolutionMap: [{ duration: [5], resolution: ["720p"] }] };
+  return { mode, durationResolutionMap: mappings([5], ["720p"]) };
 }
 
 export async function listMediaModels(): Promise<MediaModel[]> {

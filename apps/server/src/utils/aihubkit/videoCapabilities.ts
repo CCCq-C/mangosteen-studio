@@ -19,6 +19,7 @@ interface StoredVideoCapabilities {
 const videoDocumentationUrl = "https://86bdknokqu.apifox.cn/9260936m0.md";
 const refreshInterval = 10 * 60_000;
 const maxDocumentationSize = 256 * 1024;
+const maxVideoDuration = 300;
 let currentRules: AihubkitVideoCapabilityRules | undefined;
 let checkedAt = 0;
 let refreshRequest: Promise<AihubkitVideoCapabilityRules> | undefined;
@@ -30,6 +31,28 @@ function object(value: unknown) {
 function count(value: unknown, maximum: number) {
   const number = Number(value);
   return Number.isInteger(number) && number >= 0 && number <= maximum ? number : undefined;
+}
+
+function videoDuration(value: unknown) {
+  const duration = count(value, maxVideoDuration);
+  return duration && duration > 0 ? duration : undefined;
+}
+
+export function resolveAihubkitVideoDurations(modelId: string, description: string | undefined): number[] | undefined {
+  const detail = description?.trim() ?? "";
+  if (/digitalhuman/i.test(modelId) || /按(?:输入)?音频(?:时长|秒数)|(?:时长)?(?:跟随|匹配)(?:输入)?音频/i.test(detail)) return [];
+
+  const range = /(\d{1,3})\s*(?:[-–—~～]|至|到)\s*(\d{1,3})\s*(?:秒|s)(?![a-z])/i.exec(detail);
+  const from = videoDuration(range?.[1]);
+  const to = videoDuration(range?.[2]);
+  if (from && to && from <= to) return Array.from({ length: to - from + 1 }, (_value, index) => from + index);
+
+  const fixed = [
+    /(?:仅|只|固定)(?:支持|可(?:以)?|能)?(?:生成)?\s*(\d{1,3})\s*秒/i,
+    /一(?:条|次)\s*(\d{1,3})\s*秒/i,
+    /(\d{1,3})\s*秒\s*一(?:条|次)/i,
+  ].map(pattern => videoDuration(pattern.exec(detail)?.[1])).find(duration => duration !== undefined);
+  return fixed === undefined ? undefined : [fixed];
 }
 
 function normalizeLimits(value: unknown) {
