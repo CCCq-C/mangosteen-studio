@@ -314,7 +314,8 @@ jobs:
           await write(join(process.env.inspectionDirectory, "app.tar"), Bun.zstdDecompressSync(await file(join(directory, archives[0])).arrayBuffer()));
           '
           tar -xf "$inspectionDirectory/app.tar" -C "$inspectionDirectory"
-          mapfile -d '' extractedApps < <(find "$inspectionDirectory" -maxdepth 1 -type d -name '*.app' -print0)
+          shopt -s nullglob
+          extractedApps=("$inspectionDirectory"/*.app)
           test "${#extractedApps[@]}" -eq 1
           app="${extractedApps[0]}"
           test -s "$app/Contents/Resources/AppIcon.icns"
@@ -328,7 +329,7 @@ jobs:
             verifyMacArtifact "$dmg"
             hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mountDirectory"
             trap 'hdiutil detach "$mountDirectory"' EXIT
-            mapfile -d '' mountedApps < <(find "$mountDirectory" -maxdepth 1 -type d -name '*.app' -print0)
+            mountedApps=("$mountDirectory"/*.app)
             test "${#mountedApps[@]}" -eq 1
             mountedApp="${mountedApps[0]}"
             test -x "$mountedApp/Contents/MacOS/launcher"
