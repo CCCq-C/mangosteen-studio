@@ -20,14 +20,14 @@ concurrency:
 
 jobs:
   build:
-    name: 构建所有平台版本
+    name: 构建桌面平台版本
     uses: ./.github/workflows/debug.yml
     with:
-      target: all
+      target: desktop
       ref: ${{ inputs.ref || github.sha }}
       version: ${{ inputs.version || github.ref_name }}
       generatePatch: true
-      androidRelease: true
+      macCodesign: false
     secrets:
       MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -86,7 +86,7 @@ jobs:
           pattern: toonflow-${{ needs.build.outputs.version }}-*
           path: artifacts
           merge-multiple: true
-      - name: 生成双平台下载说明
+      - name: 生成桌面平台下载说明
         env:
           releaseVersion: ${{ needs.build.outputs.version }}
         run: |
@@ -103,7 +103,6 @@ jobs:
           const windows = findInstaller("Windows", name => name === `MangosteenStudio-Windows-x64-v${version}-Setup.exe`);
           const macArm = findInstaller("macOS ARM64", name => name.endsWith(".dmg") && name.includes("arm64"));
           const macIntel = findInstaller("macOS x64", name => name.endsWith(".dmg") && name.includes("x64"));
-          const android = findInstaller("Android ARM64", name => name === `toonflow-${version}-android-arm64.apk`);
           const renderDownloadBody = baseUrl => {
             const download = name => `${baseUrl}/${encodeURIComponent(name)}`;
             return [
@@ -116,7 +115,6 @@ jobs:
               `| 💻 Windows（64 位） | [⬇️ 下载 Windows 安装包](${download(windows)}) |`,
               `| 🍎 Mac（M 系列芯片） | [⬇️ 下载 M 系列 Mac 安装包](${download(macArm)}) |`,
               `| 🍎 Mac（Intel 芯片） | [⬇️ 下载 Intel Mac 安装包](${download(macIntel)}) |`,
-              `| 📱 Android（ARM64，Android 8 及以上） | [⬇️ 下载 Android APK](${download(android)}) |`,
               "",
               "> 💡 手动安装请选择上表中的链接。下方其他文件供软件自动更新使用。",
               "",
@@ -124,9 +122,8 @@ jobs:
               "",
               "- 💻 **Windows**：双击下载的安装包，按提示完成安装。",
               "- 🍎 **Mac**：打开下载的安装包，将 `toonflow.app` 拖入“应用程序”，再从“应用程序”打开。",
-              "- 📱 **Android**：在手机上打开 APK，按系统提示允许此来源安装应用。后续版本可直接覆盖安装。",
               "",
-              "M 系列 Mac 安装包已完成 Developer ID 签名与 Apple 公证。首次打开时，macOS 仍可能提示确认打开从互联网下载的应用。",
+              "Windows 安装包未进行 Authenticode 签名；Mac 安装包未进行 Developer ID 签名和 Apple 公证。请只从本项目 Release 下载，并使用 SHA256SUMS 核对文件。",
               "",
               "---",
               "",
