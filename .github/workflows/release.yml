@@ -202,7 +202,7 @@ jobs:
           buildCommit: ${{ needs.build.outputs.commit }}
         run: |
           node --input-type=module <<'JS'
-          import { readFileSync, readdirSync, statSync } from "node:fs";
+          import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
           import { spawnSync } from "node:child_process";
           import { join } from "node:path";
 
@@ -216,6 +216,24 @@ jobs:
           const tag = `v${version}`;
           const giteeApi = "https://gitee.com/api/v5/repos/Chance-Ccc/mangosteen-studio";
           const giteeHeaders = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+          const verifyRoot = mkdtempSync(join(process.env.RUNNER_TEMP ?? ".", "release-verify-"));
+
+          function downloadFile(url, output, headers = []) {
+            const result = spawnSync("curl", [
+              "--silent", "--show-error", "--fail-with-body", "--location", "--max-time", "1800",
+              ...headers.flatMap(value => ["--header", value]), "--output", output, url,
+            ], { encoding: "utf8", timeout: 1810000, maxBuffer: 4 * 1024 * 1024 });
+            if (result.error) throw result.error;
+            if (result.status !== 0) throw new Error(`下载远端附件失败：${(result.stderr || result.stdout).slice(0, 500)}`);
+          }
+
+          function verifyChecksums(directory) {
+            const result = spawnSync("sha256sum", ["--check", "SHA256SUMS"], {
+              cwd: directory, encoding: "utf8", timeout: 1810000, maxBuffer: 4 * 1024 * 1024,
+            });
+            if (result.error) throw result.error;
+            return result.status === 0;
+          }
 
           async function readResponse(response, label) {
             const text = await response.text();
@@ -266,18 +284,41 @@ jobs:
           if (checksumNames.some(name => !name) || JSON.stringify(checksumNames) !== JSON.stringify(artifactNames)) {
             throw new Error("SHA256SUMS 没有且仅有全部构建产物");
           }
+          const expectedNames = new Set(expected.map(file => file.name));
+
+          function downloadGiteeBatch(attachments) {
+            const directory = mkdtempSync(join(verifyRoot, "gitee-"));
+            for (const file of expected) {
+              const attachment = attachments.find(item => item?.name === file.name && Number(item.size) === file.size);
+              if (!Number.isSafeInteger(attachment?.id)) throw new Error(`Gitee 附件 ${file.name} 缺失或 ID 无效`);
+              downloadFile(`${giteeApi}${attachmentPath}/${attachment.id}/download`, join(directory, file.name), [
+                `Authorization: Bearer ${token}`, "Accept: application/octet-stream",
+              ]);
+            }
+            return { directory, valid: readFileSync(join(directory, "SHA256SUMS"), "utf8") === checksumText && verifyChecksums(directory) };
+          }
+
+          function downloadGithubBatch(assets) {
+            const directory = mkdtempSync(join(verifyRoot, "github-"));
+            for (const file of expected) {
+              const asset = assets.find(item => item?.name === file.name && Number(item.size) === file.size);
+              if (!asset?.browser_download_url) throw new Error(`GitHub 附件 ${file.name} 缺失下载地址`);
+              downloadFile(asset.browser_download_url, join(directory, file.name));
+            }
+            return readFileSync(join(directory, "SHA256SUMS"), "utf8") === checksumText && verifyChecksums(directory);
+          }
 
           const attachmentPath = `/releases/${release.id}/attach_files`;
           let attachments = (await giteeRequest(`${attachmentPath}?page=1&per_page=100&direction=asc`, {}, "读取 Gitee 附件")).data;
           if (!Array.isArray(attachments)) throw new Error("Gitee 附件列表格式不正确");
           const previousChecksums = attachments.filter(item => item?.name === "SHA256SUMS" && Number(item.size) === checksumFile.size);
           let completeBatchExists = false;
-          if (previousChecksums.length === 1 && Number.isSafeInteger(previousChecksums[0].id)) {
-            const previousChecksumResponse = await fetch(`${giteeApi}${attachmentPath}/${previousChecksums[0].id}/download`, {
-              headers: { Authorization: `Bearer ${token}`, Accept: "application/octet-stream" },
-              signal: AbortSignal.timeout(30000),
-            });
-            completeBatchExists = previousChecksumResponse.ok && await previousChecksumResponse.text() === checksumText;
+          let verifiedGiteeDirectory = "";
+          const existingSetMatches = attachments.length === expected.length && attachments.every(item => expected.some(file => file.name === item?.name && file.size === Number(item.size)));
+          if (previousChecksums.length === 1 && Number.isSafeInteger(previousChecksums[0].id) && existingSetMatches) {
+            const existing = downloadGiteeBatch(attachments);
+            completeBatchExists = existing.valid;
+            if (existing.valid) verifiedGiteeDirectory = existing.directory;
           }
           for (const file of expected) {
             const matches = attachments.filter(item => item?.name === file.name);
@@ -304,7 +345,6 @@ jobs:
           }
 
           attachments = (await giteeRequest(`${attachmentPath}?page=1&per_page=100&direction=asc`, {}, "核验 Gitee 附件")).data;
-          const expectedNames = new Set(expected.map(file => file.name));
           const unexpectedGiteeAssets = attachments.filter(item => !expectedNames.has(item?.name));
           if (attachments.length !== expected.length || unexpectedGiteeAssets.length) {
             throw new Error(`Gitee Release 附件集合不一致：${unexpectedGiteeAssets.map(item => item?.name).join(", ") || "数量不一致"}`);
@@ -319,6 +359,11 @@ jobs:
             signal: AbortSignal.timeout(30000),
           });
           if (!checksumResponse.ok || await checksumResponse.text() !== checksumText) throw new Error("Gitee SHA256SUMS 下载核验失败");
+          if (!verifiedGiteeDirectory) {
+            const downloaded = downloadGiteeBatch(attachments);
+            if (!downloaded.valid) throw new Error("Gitee 全部附件重新下载后的 SHA256 校验失败");
+            verifiedGiteeDirectory = downloaded.directory;
+          }
 
           const githubHeaders = { Authorization: `Bearer ${ghToken}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
           const githubReleaseResponse = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/releases/tags/${tag}`, {
@@ -336,5 +381,6 @@ jobs:
           const githubChecksum = githubRelease.assets.find(item => item?.name === "SHA256SUMS");
           const githubChecksumResponse = await fetch(githubChecksum.browser_download_url, { signal: AbortSignal.timeout(30000) });
           if (!githubChecksumResponse.ok || await githubChecksumResponse.text() !== checksumText) throw new Error("GitHub SHA256SUMS 下载核验失败");
-          console.log(`GitHub 与 Gitee 已发布 ${expected.length} 个同名、同大小产物，并共享同一 SHA256SUMS`);
+          if (!downloadGithubBatch(githubRelease.assets)) throw new Error("GitHub 全部附件重新下载后的 SHA256 校验失败");
+          console.log(`GitHub 与 Gitee 已发布 ${expected.length} 个同名、同大小、同 SHA256 产物`);
           JS
