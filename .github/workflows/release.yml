@@ -86,6 +86,12 @@ jobs:
           pattern: toonflow-${{ needs.build.outputs.version }}-*
           path: artifacts
           merge-multiple: true
+      - name: 未签名 Mac 仅发布手动安装包
+        run: |
+          set -euo pipefail
+          find artifacts -maxdepth 1 -type f -name 'stable-macos-*' -print -delete
+          test "$(find artifacts -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 2
+          test -z "$(find artifacts -maxdepth 1 -type f -name 'stable-macos-*' -print -quit)"
       - name: 生成桌面平台下载说明
         env:
           releaseVersion: ${{ needs.build.outputs.version }}
@@ -116,7 +122,7 @@ jobs:
               `| 🍎 Mac（M 系列芯片） | [⬇️ 下载 M 系列 Mac 安装包](${download(macArm)}) |`,
               `| 🍎 Mac（Intel 芯片） | [⬇️ 下载 Intel Mac 安装包](${download(macIntel)}) |`,
               "",
-              "> 💡 手动安装请选择上表中的链接。下方其他文件供软件自动更新使用。",
+              "> 💡 手动安装请选择上表中的链接。下方其他文件仅供已支持的平台自动更新；未签名 Mac 请始终手动安装 DMG。",
               "",
               "## 🚀 安装说明",
               "",
