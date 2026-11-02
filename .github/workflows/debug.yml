@@ -314,7 +314,9 @@ jobs:
           await write(join(process.env.inspectionDirectory, "app.tar"), Bun.zstdDecompressSync(await file(join(directory, archives[0])).arrayBuffer()));
           '
           tar -xf "$inspectionDirectory/app.tar" -C "$inspectionDirectory"
-          app="$inspectionDirectory/toonflow.app"
+          mapfile -d '' extractedApps < <(find "$inspectionDirectory" -maxdepth 1 -type d -name '*.app' -print0)
+          test "${#extractedApps[@]}" -eq 1
+          app="${extractedApps[0]}"
           test -s "$app/Contents/Resources/AppIcon.icns"
           test -s "$app/Contents/Resources/app/bun/index.js"
           test -x "$app/Contents/MacOS/bun"
@@ -326,8 +328,11 @@ jobs:
             verifyMacArtifact "$dmg"
             hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mountDirectory"
             trap 'hdiutil detach "$mountDirectory"' EXIT
-            test -x "$mountDirectory/toonflow.app/Contents/MacOS/launcher"
-            verifyMacArtifact "$mountDirectory/toonflow.app"
+            mapfile -d '' mountedApps < <(find "$mountDirectory" -maxdepth 1 -type d -name '*.app' -print0)
+            test "${#mountedApps[@]}" -eq 1
+            mountedApp="${mountedApps[0]}"
+            test -x "$mountedApp/Contents/MacOS/launcher"
+            verifyMacArtifact "$mountedApp"
             hdiutil detach "$mountDirectory"
             trap - EXIT
           done
