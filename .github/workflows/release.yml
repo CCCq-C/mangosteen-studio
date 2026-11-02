@@ -89,9 +89,9 @@ jobs:
       - name: 未签名 Mac 仅发布手动安装包
         run: |
           set -euo pipefail
-          find artifacts -maxdepth 1 -type f -name 'stable-macos-*' -print -delete
+          find artifacts -maxdepth 1 -type f \( -name 'stable-macos-*-update.json' -o -name 'stable-macos-*.app.tar.zst' \) -print -delete
           test "$(find artifacts -maxdepth 1 -type f -name '*.dmg' | wc -l)" -eq 2
-          test -z "$(find artifacts -maxdepth 1 -type f -name 'stable-macos-*' -print -quit)"
+          test -z "$(find artifacts -maxdepth 1 -type f \( -name 'stable-macos-*-update.json' -o -name 'stable-macos-*.app.tar.zst' \) -print -quit)"
       - name: 生成桌面平台下载说明
         env:
           releaseVersion: ${{ needs.build.outputs.version }}
