@@ -257,7 +257,7 @@ jobs:
           let { response, data: release } = await giteeRequest(releasePath, {}, "读取 Gitee Release", true);
           const releaseBody = readFileSync("giteeReleaseBody.md", "utf8");
           const releasePayload = { tag_name: tag, target_commitish: buildCommit, name: `山竹漫剧 ${version}`, body: releaseBody, prerelease: false };
-          if (response.status === 404) {
+          if (response.status === 404 || release === null) {
             ({ data: release } = await giteeRequest("/releases", {
               method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(releasePayload),
             }, "创建 Gitee Release"));
