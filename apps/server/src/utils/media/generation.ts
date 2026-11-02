@@ -43,7 +43,7 @@ function aihubkitVideoCapabilities(modelId: string, description: string | undefi
   const id = modelId.toLowerCase();
   const limits = resolveAihubkitVideoReferenceLimits(modelId, description, rules);
   const mode = ["text", ...(limits?.images ? [[`imageReference:${limits.images}`]] : [])];
-  const describedDurations = resolveAihubkitVideoDurations(modelId, description);
+  const describedDurations = resolveAihubkitVideoDurations(description);
   const mappings = (fallback: number[], resolution: string[]) => {
     const duration = describedDurations ?? fallback;
     return duration.length ? [{ duration, resolution }] : [];

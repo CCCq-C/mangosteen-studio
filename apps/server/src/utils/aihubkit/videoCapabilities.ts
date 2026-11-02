@@ -38,10 +38,8 @@ function videoDuration(value: unknown) {
   return duration && duration > 0 ? duration : undefined;
 }
 
-export function resolveAihubkitVideoDurations(modelId: string, description: string | undefined): number[] | undefined {
+export function resolveAihubkitVideoDurations(description: string | undefined): number[] | undefined {
   const detail = description?.trim() ?? "";
-  if (/digitalhuman/i.test(modelId) || /按(?:输入)?音频(?:时长|秒数)|(?:时长)?(?:跟随|匹配)(?:输入)?音频/i.test(detail)) return [];
-
   const range = /(\d{1,3})\s*(?:[-–—~～]|至|到)\s*(\d{1,3})\s*(?:秒|s)(?![a-z])/i.exec(detail);
   const from = videoDuration(range?.[1]);
   const to = videoDuration(range?.[2]);

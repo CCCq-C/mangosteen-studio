@@ -23,7 +23,7 @@
 - 范围上下限异常或倒置时必须忽略并回退。
 - 中英文范围单位及常见分隔符必须得到相同结果。
 - 固定时长必须压缩为单个下拉选项。
-- 跟随音频与详情缺失必须可区分，避免数字人回退为 5 秒。
+- 数字人详情不能让现有供应商的正整数时长校验失效。
 
 ---
 
@@ -34,18 +34,18 @@
 - Modify: `apps/server/src/utils/media/generation.ts`
 
 **Interfaces:**
-- Produces: `resolveAihubkitVideoDurations(modelId: string, description: string | undefined): number[] | undefined`
+- Produces: `resolveAihubkitVideoDurations(description: string | undefined): number[] | undefined`
 - Consumes: 模型广场同步得到的 `model.id` 与 `model.description`
 
 - [ ] **Step 1: 记录修改前的真实差异**
 
 运行只读命令，对照当前模型广场详情与现有家族规则，确认 12 个差异模型。
 
-Expected: 输出包含 `MiniMax-H3-30s 4-15 -> 4-30`、三个固定 15 秒模型及数字人跟随音频。
+Expected: 输出包含 `MiniMax-H3-30s 4-15 -> 4-30`、三个固定 15 秒模型；数字人单独保留兼容行为。
 
 - [ ] **Step 2: 实现在线详情解析**
 
-在 `videoCapabilities.ts` 新增 `resolveAihubkitVideoDurations`：优先解析范围，再解析明确固定时长；数字人或“按输入音频秒数”返回空数组；无可靠信息返回 `undefined`。
+在 `videoCapabilities.ts` 新增 `resolveAihubkitVideoDurations`：优先解析范围，再解析明确固定时长；无可靠信息返回 `undefined`。
 
 - [ ] **Step 3: 应用解析结果**
 
@@ -53,7 +53,7 @@ Expected: 输出包含 `MiniMax-H3-30s 4-15 -> 4-30`、三个固定 15 秒模型
 
 - [ ] **Step 4: 一次性验证解析结果**
 
-Run: 使用 Bun 直接导入生产函数，校验范围、固定值、跟随音频、价格文本和无详情五类输入。
+Run: 使用 Bun 直接导入生产函数，校验范围、固定值、价格文本、异常范围和无详情输入，并确认数字人继续使用原兼容值。
 
 Expected: 所有手工期望值相等，进程退出码为 0。
 
