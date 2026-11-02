@@ -42,7 +42,11 @@ function seconds(from: number, to: number) {
 function aihubkitVideoCapabilities(modelId: string, description: string | undefined, rules: AihubkitVideoCapabilityRules): Pick<MediaModel, "mode" | "durationResolutionMap" | "audio"> {
   const id = modelId.toLowerCase();
   const limits = resolveAihubkitVideoReferenceLimits(modelId, description, rules);
-  const mode = ["text", ...(limits?.images ? [[`imageReference:${limits.images}`]] : [])];
+  const references = [
+    ...(limits?.images ? [`imageReference:${limits.images}`] : []),
+    ...(limits?.videos ? [`videoReference:${limits.videos}`] : []),
+  ];
+  const mode = ["text", ...(references.length ? [references] : [])];
   const describedDurations = resolveAihubkitVideoDurations(description);
   const mappings = (fallback: number[], resolution: string[]) => {
     const duration = describedDurations ?? fallback;
