@@ -1,5 +1,5 @@
 import { createApp, h, nextTick, ref } from "vue";
-import { ElButton, ElResult } from "element-plus";
+import { ElButton, ElMessageBox, ElResult } from "element-plus";
 import { createPinia } from "pinia";
 import { createPersistedState } from "pinia-plugin-persistedstate";
 import App from "./App.vue";
@@ -17,6 +17,7 @@ import { getMissingBrowserFeatures } from "@/lib/browserCapabilities";
 import { loadSettings, settingsStorage } from "@/stores/settings";
 import { registerLanguage } from "@/lib/i18n";
 import { locale, translate } from "@toonflow/i18n/vue";
+import { flushWorkspaceSave } from "@/lib/mcpControl";
 
 const app = createApp(App);
 app.onUnmount(registerLanguage());
@@ -34,6 +35,43 @@ async function notifyDesktopReady(failed = false) {
   });
   if (!response.ok) throw new Error((await response.json()).message || `通知桌面就绪失败（${response.status}）`);
 }
+
+async function respondToDesktopClose(allow: boolean) {
+  const response = await fetch("/api/desktop/close", {
+    method: "POST",
+    headers: { "x-toonflow-desktop": "1", "Content-Type": "application/json", "Accept-Language": locale.value },
+    body: JSON.stringify({ allow }),
+  });
+  if (!response.ok) throw new Error((await response.json()).message || `响应桌面关闭失败（${response.status}）`);
+}
+
+function registerDesktopClose() {
+  if (!isDesktop) return () => {};
+  let handling = false;
+  const close = () => {
+    if (handling) return;
+    handling = true;
+    void (async () => {
+      let allow = true;
+      try {
+        await flushWorkspaceSave();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "项目保存失败";
+        allow = await ElMessageBox.confirm(`无法保存项目：${message}。仍然退出将丢弃尚未保存的修改。`, "项目未保存", {
+          type: "warning", confirmButtonText: "仍然退出", cancelButtonText: "留在项目", closeOnClickModal: false,
+        }).then(() => true, () => false);
+      }
+      await respondToDesktopClose(allow);
+    })().catch(error => {
+      console.error("桌面关闭响应失败：", error);
+      void ElMessageBox.alert(error instanceof Error ? error.message : "无法响应桌面关闭请求，请重试", "关闭失败", { type: "error" });
+    }).finally(() => { handling = false; });
+  };
+  window.addEventListener("toonflow:desktop-close", close);
+  return () => window.removeEventListener("toonflow:desktop-close", close);
+}
+
+app.onUnmount(registerDesktopClose());
 
 // ACT: 已安装客户端的自动更新不经过 NSIS；启动时阻止缺少所需 API 的旧 WebView2 进入业务页面。
 (requiresWebView2Update

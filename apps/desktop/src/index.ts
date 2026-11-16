@@ -168,6 +168,18 @@ async function start() {
         y: workArea.y + Math.round((workArea.height - height) / 2),
       },
     });
+    let closeRequested = false;
+    let closeApproved = false;
+    let closeRequestTimer: ReturnType<typeof setTimeout> | undefined;
+    mainWindow.on("will-close", value => {
+      const event = value as { response: { allow: boolean } };
+      if (closeApproved) return;
+      event.response = { allow: false };
+      if (closeRequested) return;
+      closeRequested = true;
+      closeRequestTimer = setTimeout(() => { closeRequested = false; }, 60_000);
+      mainWindow.webview.executeJavascript('window.dispatchEvent(new Event("toonflow:desktop-close"));');
+    });
     // ACT: 两版 SDK 的全局事件不带 WebView ID，使用事件名后缀限定主窗口。
     Electrobun.events.on(`new-window-open-${mainWindow.webview.id}`, (event: { data: { detail: unknown } }) => {
       const detail = event.data.detail;
@@ -239,6 +251,15 @@ async function start() {
         if (process.platform === "win32") confirmWindowsUpdateStartup(PATHS.RESOURCES_FOLDER);
         else await (Updater as DesktopRuntime["updater"]).confirmStartup?.();
       },
+      respondToClose(allow) {
+        if (!closeRequested) return;
+        clearTimeout(closeRequestTimer);
+        closeRequestTimer = undefined;
+        closeRequested = false;
+        if (!allow) return;
+        closeApproved = true;
+        setTimeout(() => mainWindow.requestClose(), 100);
+      },
       openDevTools() { mainWindow.webview.openDevTools(); },
       // ACT: Windows 使用两阶段退出；Intel Mac 由兼容入口适配 1.18.1 更新器。
       updater: process.platform === "win32" ? createWindowsUpdater(PATHS.RESOURCES_FOLDER, Utils as unknown as Parameters<typeof createWindowsUpdater>[1]) : Updater,
@@ -272,6 +293,7 @@ async function start() {
       mainWindow.on("close", closeIcons);
     }
     mainWindow.on("close", () => {
+      clearTimeout(closeRequestTimer);
       void connection.close().catch(error => console.error("设备连接关闭失败：", error));
       void closeBrowsers().catch(error => console.error("浏览器关闭失败：", error));
       isClosing = true;

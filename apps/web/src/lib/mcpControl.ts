@@ -19,6 +19,10 @@ export function registerWorkspaceControl(control: WorkspaceControl) {
   onScopeDispose(() => { if (workspaceControl.value === control) workspaceControl.value = undefined; });
 }
 
+export async function flushWorkspaceSave() {
+  await workspaceControl.value?.flushSave();
+}
+
 export function waitForControlValue<T>(read: WatchSource<T | undefined>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {

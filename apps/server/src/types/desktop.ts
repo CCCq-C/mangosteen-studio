@@ -52,6 +52,7 @@ export interface DesktopRuntime {
   selectSaveFile(fileName: string): Promise<string | null>;
   saveFile(token: string, content: Uint8Array): Promise<boolean>;
   ready(failed?: boolean): Promise<void>;
+  respondToClose(allow: boolean): void;
   openDevTools(): void;
   updater: {
     getLocalInfo(): Promise<{ version: string; channel: string; hash: string; baseUrl: string }>;
